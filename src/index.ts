@@ -1,0 +1,19 @@
+import { Hono } from "hono";
+import { cors } from "hono/cors";
+import { handleResolve } from "./api";
+import { handleMCP } from "./mcp";
+
+const app = new Hono();
+
+app.use("*", cors());
+
+app.get("/api/v1/resolve", handleResolve);
+
+app.get("/health", (c) => c.json({ status: "ok" }));
+
+// MCP Streamable HTTP endpoint
+app.post("/mcp", handleMCP);
+app.get("/mcp", handleMCP);
+app.delete("/mcp", handleMCP);
+
+export default app;
