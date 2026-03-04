@@ -2,7 +2,7 @@
  * Compiles all registry JSON files into a single TypeScript module.
  *
  * Usage: npx tsx scripts/build-registry.ts [path-to-secid-repo]
- * Default: looks for ../SecID/registry/
+ * Default: looks for ~/GitHub/CloudSecurityAlliance/SecID/registry/
  */
 
 import { readFileSync, writeFileSync, readdirSync, statSync } from "fs";
@@ -12,7 +12,10 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const secidRepo = process.argv[2] || resolve(__dirname, "../../SecID");
+import { homedir } from "os";
+
+const secidRepo =
+  process.argv[2] || join(homedir(), "GitHub", "CloudSecurityAlliance", "SecID");
 const registryDir = join(secidRepo, "registry");
 
 interface RegistryFile {
