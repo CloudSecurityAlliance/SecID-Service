@@ -16,4 +16,7 @@ app.post("/mcp", handleMCP);
 app.get("/mcp", handleMCP);
 app.delete("/mcp", handleMCP);
 
+// 404 for unmatched routes (static assets are served before this by [assets])
+app.all("*", (c) => c.json({ error: "Not found" }, 404));
+
 export default app;

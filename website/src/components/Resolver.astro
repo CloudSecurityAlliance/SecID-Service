@@ -1,0 +1,236 @@
+---
+// Interactive SecID resolver — calls /api/v1/resolve and displays results
+---
+
+<div class="resolver">
+  <form id="resolver-form" autocomplete="off">
+    <label for="resolver-input">Resolve a SecID</label>
+    <div class="resolver-row">
+      <input
+        id="resolver-input"
+        type="text"
+        placeholder="secid:advisory/mitre.org/cve#CVE-2021-44228"
+        spellcheck="false"
+      />
+      <button type="submit">Resolve</button>
+    </div>
+    <div class="resolver-examples">
+      Try:
+      <button type="button" data-example="secid:advisory/mitre.org/cve#CVE-2021-44228">CVE</button>
+      <button type="button" data-example="secid:weakness/mitre.org/cwe#CWE-79">CWE</button>
+      <button type="button" data-example="secid:ttp/mitre.org/attack#T1059.003">ATT&CK</button>
+      <button type="button" data-example="secid:advisory/CVE-2024-1234">Cross-source</button>
+      <button type="button" data-example="secid:advisory">Browse types</button>
+    </div>
+  </form>
+  <div id="resolver-output" class="resolver-output" hidden></div>
+</div>
+
+<style>
+  .resolver {
+    margin: 2rem 0;
+    padding: 1.5rem;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .resolver label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    font-size: 1.1rem;
+  }
+  .resolver-row {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .resolver-row input {
+    flex: 1;
+    padding: 0.6rem 0.8rem;
+    font-size: 1rem;
+    font-family: var(--font-mono);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  .resolver-row input:focus {
+    outline: 2px solid var(--accent);
+    outline-offset: -1px;
+  }
+  .resolver-row button {
+    padding: 0.6rem 1.2rem;
+    font-size: 1rem;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    background: var(--accent);
+    color: #fff;
+    cursor: pointer;
+  }
+  .resolver-row button:hover {
+    opacity: 0.9;
+  }
+  .resolver-examples {
+    margin-top: 0.5rem;
+    font-size: 0.85rem;
+    color: var(--fg-muted);
+  }
+  .resolver-examples button {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.8rem;
+    color: var(--accent);
+    cursor: pointer;
+    margin-left: 0.25rem;
+  }
+  .resolver-examples button:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+  .resolver-output {
+    margin-top: 1rem;
+    padding: 1rem;
+    border-radius: 4px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    line-height: 1.5;
+    overflow-x: auto;
+  }
+</style>
+
+<script>
+  const form = document.getElementById("resolver-form") as HTMLFormElement;
+  const input = document.getElementById("resolver-input") as HTMLInputElement;
+  const output = document.getElementById("resolver-output") as HTMLDivElement;
+
+  // Example buttons fill the input and submit
+  form.querySelectorAll("[data-example]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      input.value = (btn as HTMLElement).dataset.example!;
+      form.requestSubmit();
+    });
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const query = input.value.trim();
+    if (!query) return;
+
+    output.hidden = false;
+    output.textContent = "Resolving...";
+
+    try {
+      const url = `/api/v1/resolve?secid=${encodeURIComponent(query)}`;
+      const res = await fetch(url);
+      const data = await res.json();
+      renderResponse(output, data);
+    } catch (err) {
+      output.textContent = `Error: ${(err as Error).message}`;
+    }
+  });
+
+  interface ResolveResult {
+    secid: string;
+    weight?: number;
+    url?: string;
+    data?: Record<string, unknown>;
+  }
+
+  interface ResolveResponse {
+    secid_query: string;
+    status: string;
+    results: ResolveResult[];
+    message?: string;
+  }
+
+  function renderResponse(container: HTMLElement, data: ResolveResponse): void {
+    // Clear previous content
+    container.textContent = "";
+
+    // Status line
+    const statusLine = document.createElement("div");
+    const statusSpan = document.createElement("strong");
+    statusSpan.textContent = `Status: ${data.status}`;
+    statusSpan.dataset.status = data.status;
+    statusLine.appendChild(statusSpan);
+    container.appendChild(statusLine);
+
+    // Query echo
+    const queryLine = document.createElement("div");
+    queryLine.textContent = `Query: ${data.secid_query}`;
+    container.appendChild(queryLine);
+
+    // Message if present
+    if (data.message) {
+      const msgLine = document.createElement("div");
+      msgLine.textContent = `Message: ${data.message}`;
+      container.appendChild(msgLine);
+    }
+
+    if (data.results && data.results.length > 0) {
+      const countLine = document.createElement("div");
+      countLine.textContent = `\nResults (${data.results.length}):`;
+      countLine.style.marginTop = "0.5rem";
+      container.appendChild(countLine);
+
+      for (const r of data.results) {
+        const resultDiv = document.createElement("div");
+        resultDiv.style.marginTop = "0.5rem";
+        resultDiv.style.paddingLeft = "1rem";
+
+        // SecID + weight
+        const secidLine = document.createElement("div");
+        secidLine.textContent = r.weight != null
+          ? `${r.secid}  (weight: ${r.weight})`
+          : r.secid;
+        resultDiv.appendChild(secidLine);
+
+        // URL as clickable link
+        if (r.url) {
+          const urlLine = document.createElement("div");
+          const link = document.createElement("a");
+          link.href = r.url;
+          link.textContent = r.url;
+          link.target = "_blank";
+          link.rel = "noopener";
+          link.style.color = "var(--accent)";
+          urlLine.appendChild(link);
+          resultDiv.appendChild(urlLine);
+        }
+
+        // Registry data fields
+        if (r.data) {
+          const d = r.data;
+          if (d.official_name) {
+            const line = document.createElement("div");
+            line.textContent = `Name: ${d.official_name}`;
+            resultDiv.appendChild(line);
+          }
+          if (d.common_name) {
+            const line = document.createElement("div");
+            line.textContent = `Common: ${d.common_name}`;
+            resultDiv.appendChild(line);
+          }
+          if (d.description) {
+            const line = document.createElement("div");
+            line.textContent = `${d.description}`;
+            line.style.color = "var(--fg-muted)";
+            resultDiv.appendChild(line);
+          }
+        }
+
+        container.appendChild(resultDiv);
+      }
+    } else {
+      const noResults = document.createElement("div");
+      noResults.textContent = "No results.";
+      noResults.style.marginTop = "0.5rem";
+      container.appendChild(noResults);
+    }
+  }
+</script>

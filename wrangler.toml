@@ -4,7 +4,8 @@ compatibility_date = "2025-01-01"
 account_id = "f3898058ae0b4c20c692bbfa5b9b44b0"
 
 routes = [
-  { pattern = "secid.cloudsecurityalliance.org/api/*", zone_id = "113bb8004441490558a7ce8b4b611cc1" },
-  { pattern = "secid.cloudsecurityalliance.org/mcp/*", zone_id = "113bb8004441490558a7ce8b4b611cc1" },
-  { pattern = "secid.cloudsecurityalliance.org/health", zone_id = "113bb8004441490558a7ce8b4b611cc1" },
+  { pattern = "secid.cloudsecurityalliance.org/*", zone_id = "113bb8004441490558a7ce8b4b611cc1" },
 ]
+
+[assets]
+directory = "./website/dist"

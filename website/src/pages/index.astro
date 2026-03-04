@@ -1,0 +1,268 @@
+---
+import Base from "../layouts/Base.astro";
+
+const apiExample = `GET /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
+
+{
+  "secid_query": "secid:advisory/mitre.org/cve#CVE-2021-44228",
+  "status": "found",
+  "results": [
+    {
+      "secid": "secid:advisory/mitre.org/cve#CVE-2021-44228",
+      "weight": 100,
+      "url": "https://www.cve.org/CVERecord?id=CVE-2021-44228"
+    }
+  ]
+}`;
+
+---
+
+<Base title="SecID — Universal Security Identifiers">
+  <section class="hero">
+    <h1>SecID</h1>
+    <p class="tagline">A universal grammar for referencing security knowledge.</p>
+    <p class="subtitle">
+      CVEs, CWEs, ATT&CK techniques, NIST controls, ISO standards, vendor advisories — all referenced the same way, all resolvable to URLs.
+    </p>
+  </section>
+
+  <section class="mcp-setup">
+    <h2>SecID MCP Server</h2>
+    <p>Add SecID to your AI assistant as a remote MCP server:</p>
+    <pre><code>https://secid.cloudsecurityalliance.org/mcp</code></pre>
+    <p>
+      That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers.
+    </p>
+    <p>
+      Your AI assistant gets three tools (<code>resolve</code>, <code>lookup</code>, <code>describe</code>) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 121 other security knowledge sources.
+    </p>
+  </section>
+
+  <section>
+    <h2>The Problem</h2>
+    <p>
+      Security knowledge is scattered across dozens of databases. Each has its own ID format, its own website, its own API. There's no universal way to reference "this CVE" or "this NIST control" that works across tools, reports, and conversations.
+    </p>
+    <p>
+      Copy-pasting <code>CVE-2021-44228</code> into a report doesn't tell you where to look it up. Which database? MITRE? NVD? Red Hat? All three?
+    </p>
+  </section>
+
+  <section>
+    <h2>The Solution</h2>
+    <p>
+      SecID gives every piece of security knowledge a structured identifier that resolves to where you can find it:
+    </p>
+    <pre><code>secid:advisory/mitre.org/cve#CVE-2021-44228
+  → https://www.cve.org/CVERecord?id=CVE-2021-44228
+
+secid:weakness/mitre.org/cwe#CWE-79
+  → https://cwe.mitre.org/data/definitions/79.html
+
+secid:ttp/mitre.org/attack#T1059.003
+  → https://attack.mitre.org/techniques/T1059/003/
+
+secid:control/nist.gov/800-53@r5#AC-1
+  → https://csrc.nist.gov/.../AC-1</code></pre>
+    <p>
+      The format is modeled after <a href="https://github.com/package-url/purl-spec" target="_blank" rel="noopener">Package URL (PURL)</a> — the same grammar that identifies software packages, adapted for security knowledge.
+    </p>
+  </section>
+
+  <section>
+    <h2>How It Works</h2>
+    <pre><code>secid:type/namespace/name[@version]#subpath
+
+  type       → What kind of thing (advisory, weakness, ttp, control, ...)
+  namespace  → Who publishes it (mitre.org, nist.gov, owasp.org, ...)
+  name       → Which database/framework (cve, cwe, attack, 800-53, ...)
+  @version   → Which edition (optional: @2021, @r5, @4.0)
+  #subpath   → The specific item (CVE-2021-44228, CWE-79, T1059.003)</code></pre>
+  </section>
+
+  <section>
+    <h2>Seven Types of Security Knowledge</h2>
+    <div class="type-grid">
+      <div class="type-card">
+        <h3>advisory</h3>
+        <p>Vulnerability publications — CVEs, vendor advisories, GHSAs, incident reports</p>
+        <code>secid:advisory/mitre.org/cve#CVE-2024-1234</code>
+      </div>
+      <div class="type-card">
+        <h3>weakness</h3>
+        <p>Abstract flaw patterns — CWE, OWASP Top 10</p>
+        <code>secid:weakness/mitre.org/cwe#CWE-79</code>
+      </div>
+      <div class="type-card">
+        <h3>ttp</h3>
+        <p>Adversary techniques — MITRE ATT&CK, ATLAS, CAPEC</p>
+        <code>secid:ttp/mitre.org/attack#T1059.003</code>
+      </div>
+      <div class="type-card">
+        <h3>control</h3>
+        <p>Security requirements — NIST CSF, ISO 27001, CCM, CIS Benchmarks</p>
+        <code>secid:control/nist.gov/csf@2.0#PR.AC-1</code>
+      </div>
+      <div class="type-card">
+        <h3>regulation</h3>
+        <p>Laws and legal requirements — GDPR, HIPAA, PCI DSS</p>
+        <code>secid:regulation/eu/gdpr#Art-32</code>
+      </div>
+      <div class="type-card">
+        <h3>entity</h3>
+        <p>Organizations, products, services</p>
+        <code>secid:entity/microsoft.com/azure</code>
+      </div>
+      <div class="type-card">
+        <h3>reference</h3>
+        <p>Documents, research, identifier systems — arXiv, DOI, RFCs</p>
+        <code>secid:reference/ietf.org/rfc#RFC-9110</code>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Cross-Source Search</h2>
+    <p>
+      Don't know which database has your identifier? Just give the type and the ID — SecID searches all sources:
+    </p>
+    <pre><code>secid:advisory/CVE-2024-1234
+  → MITRE CVE, NVD, Red Hat, GitHub Advisory, ... (all sources that track this CVE)</code></pre>
+    <p>
+      Try it in the resolver box above — type <code>secid:advisory/CVE-2024-1234</code> and see all the sources that know about it.
+    </p>
+  </section>
+
+  <section>
+    <h2>API</h2>
+    <p>One endpoint, one format:</p>
+    <pre><code set:text={apiExample} /></pre>
+    <p>
+      The API also supports progressive browsing: query <code>secid:advisory</code> to list all advisory sources, <code>secid:advisory/mitre.org</code> to see what MITRE publishes, and so on.
+    </p>
+  </section>
+
+  <section>
+    <h2>MCP Server</h2>
+    <p>
+      SecID is available as an <a href="https://modelcontextprotocol.io/" target="_blank" rel="noopener">MCP (Model Context Protocol)</a> server. See the setup instructions above — it's one URL. AI-first design: responses include context, descriptions, and disambiguation guidance so agents can reason about security knowledge without external documentation.
+    </p>
+  </section>
+
+  <section>
+    <h2>The Registry</h2>
+    <p>
+      SecID is backed by a <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">curated registry</a> of 121 namespaces across 7 types — covering CVE, CWE, ATT&CK, NIST 800-53, ISO 27001, OWASP, and dozens more.
+    </p>
+    <p>
+      The registry is open source. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contributions welcome</a> — adding a new source is a single JSON file.
+    </p>
+  </section>
+
+  <section>
+    <h2>Design Principles</h2>
+    <ul>
+      <li><strong>Labeling and finding.</strong> SecID identifies and locates security knowledge. It doesn't assign IDs, store data, or track relationships — those are separate layers.</li>
+      <li><strong>AI-first, human-legible.</strong> Structured for machine reasoning, readable by practitioners.</li>
+      <li><strong>Helpful over correct.</strong> Malformed queries get corrected, not rejected. Partial matches return related data. Never a bare error.</li>
+      <li><strong>Follow the source.</strong> <code>RHSA-2026:0932</code> stays <code>RHSA-2026:0932</code>. No mangling, no normalizing, no information loss.</li>
+      <li><strong>Domain-name namespaces.</strong> <code>mitre.org</code>, <code>nist.gov</code>, <code>owasp.org</code> — globally unique, self-explanatory, ready for future self-registration via DNS.</li>
+    </ul>
+  </section>
+
+  <section class="cta">
+    <h2>Get Started</h2>
+    <ul>
+      <li>Try the resolver above — paste any security identifier</li>
+      <li>Read the <a href="https://github.com/CloudSecurityAlliance/SecID/blob/main/SPEC.md" target="_blank" rel="noopener">specification</a></li>
+      <li>Browse the <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">registry</a></li>
+      <li>Use the <a href="/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228">REST API</a></li>
+      <li><a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contribute on GitHub</a></li>
+    </ul>
+  </section>
+</Base>
+
+<style>
+  .hero {
+    text-align: center;
+    padding: 2rem 0 1rem;
+  }
+  .hero h1 {
+    font-size: 3rem;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+  }
+  .tagline {
+    font-size: 1.3rem;
+    color: var(--fg-muted);
+    margin-top: 0.5rem;
+  }
+  .subtitle {
+    margin-top: 0.75rem;
+    max-width: 38rem;
+    margin-left: auto;
+    margin-right: auto;
+    line-height: 1.6;
+  }
+  section {
+    margin-top: 2.5rem;
+  }
+  section h2 {
+    font-size: 1.5rem;
+    margin-bottom: 0.75rem;
+  }
+  section p {
+    line-height: 1.7;
+    margin-bottom: 0.75rem;
+  }
+  section ul {
+    padding-left: 1.5rem;
+    line-height: 1.8;
+  }
+  section li {
+    margin-bottom: 0.35rem;
+  }
+  .type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(18rem, 1fr));
+    gap: 1rem;
+    margin-top: 0.5rem;
+  }
+  .type-card {
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1rem;
+    background: var(--surface);
+  }
+  .type-card h3 {
+    font-family: var(--font-mono);
+    font-size: 1rem;
+    color: var(--accent);
+    margin-bottom: 0.35rem;
+  }
+  .type-card p {
+    font-size: 0.9rem;
+    margin-bottom: 0.5rem;
+  }
+  .type-card code {
+    font-size: 0.75rem;
+    word-break: break-all;
+  }
+  .mcp-setup {
+    padding: 1.5rem;
+    border: 2px solid var(--accent);
+    border-radius: 8px;
+    background: var(--surface);
+  }
+  .mcp-setup pre {
+    font-size: 1.1rem;
+    text-align: center;
+  }
+  .cta {
+    padding: 1.5rem;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    background: var(--surface);
+    margin-bottom: 2rem;
+  }
+</style>

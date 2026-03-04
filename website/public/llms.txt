@@ -1,0 +1,51 @@
+# SecID
+
+> A universal grammar for referencing security knowledge, built by the Cloud Security Alliance.
+
+SecID provides structured identifiers for security knowledge — advisories (CVE, GHSA), weaknesses (CWE, OWASP Top 10), adversary techniques (ATT&CK, CAPEC), controls (NIST 800-53, ISO 27001), regulations (GDPR, HIPAA), entities, and reference documents.
+
+## Format
+
+secid:type/namespace/name[@version]#subpath
+
+- type: advisory, weakness, ttp, control, regulation, entity, reference
+- namespace: Domain name of the publishing organization (mitre.org, nist.gov, owasp.org)
+- name: The specific database or framework (cve, cwe, attack, 800-53)
+- @version: Optional edition (e.g., @2021, @r5, @4.0)
+- #subpath: The specific item (CVE-2021-44228, CWE-79, T1059.003)
+
+## Examples
+
+- secid:advisory/mitre.org/cve#CVE-2021-44228 → MITRE CVE record
+- secid:weakness/mitre.org/cwe#CWE-79 → CWE cross-site scripting
+- secid:ttp/mitre.org/attack#T1059.003 → ATT&CK technique
+- secid:control/nist.gov/800-53@r5#AC-1 → NIST 800-53 control
+- secid:advisory/CVE-2024-1234 → Cross-source search across all advisory databases
+
+## API
+
+GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
+
+Returns JSON with: secid_query, status (found/corrected/related/not_found/error), results array.
+Each result has: secid, weight, url (if resolvable), data (registry metadata).
+
+Progressive resolution: query "secid:advisory" to list all advisory sources, "secid:advisory/mitre.org" to see MITRE's databases, etc.
+
+## MCP Server
+
+Endpoint: https://secid.cloudsecurityalliance.org/mcp
+Protocol: Streamable HTTP (MCP 2025-03-26)
+Tools: resolve (full resolution), lookup (cross-source search), describe (registry metadata)
+Resources: secid://registry (type listing), secid://registry/{type} (namespace listing)
+
+## Registry
+
+121 namespaces across 7 types. Open source at https://github.com/CloudSecurityAlliance/SecID/tree/main/registry
+
+## Links
+
+- Specification: https://github.com/CloudSecurityAlliance/SecID/blob/main/SPEC.md
+- Design Principles: https://github.com/CloudSecurityAlliance/SecID/blob/main/PRINCIPLES.md
+- API Response Format: https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/reference/API-RESPONSE-FORMAT.md
+- Registry Guide: https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/guides/REGISTRY-GUIDE.md
+- Source Code: https://github.com/CloudSecurityAlliance/SecID-Service
