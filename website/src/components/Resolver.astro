@@ -186,11 +186,44 @@
 
   /* Result items */
   .result-item {
+    position: relative;
     margin-top: 0.5rem;
-    padding: 0.75rem 1rem;
+    padding: 0.75rem 2.5rem 0.75rem 1rem;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--surface);
+  }
+
+  /* Copy buttons */
+  .result-copy-btn,
+  .copy-json-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15rem 0.45rem;
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .result-copy-btn {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+  }
+  .result-copy-btn:hover,
+  .copy-json-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .result-copy-btn[data-copied],
+  .copy-json-btn[data-copied] {
+    color: var(--green);
+    border-color: var(--green);
+  }
+  .copy-json-btn {
+    margin-left: auto;
   }
 
   /* Drill-down links */
@@ -379,6 +412,29 @@
     explorerPath = [];
   }
 
+  // --- Copy button helper ---
+  function createCopyButton(data: unknown, className = "result-copy-btn"): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = className;
+    btn.textContent = "Copy";
+    btn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(JSON.stringify(data, null, 2));
+        btn.textContent = "Copied!";
+        btn.dataset.copied = "";
+        setTimeout(() => {
+          btn.textContent = "Copy";
+          delete btn.dataset.copied;
+        }, 1500);
+      } catch {
+        btn.textContent = "Failed";
+        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+      }
+    });
+    return btn;
+  }
+
   // --- Interfaces ---
   interface ResolveResult {
     secid: string;
@@ -440,6 +496,13 @@
       for (const r of data.results) {
         const item = document.createElement("div");
         item.className = "result-item";
+
+        // Copy button (top-right) — copies compact JSON for this result
+        const copyData: Record<string, unknown> = { secid: r.secid };
+        if (r.weight != null) copyData.weight = r.weight;
+        if (r.url) copyData.url = r.url;
+        if (r.data) copyData.data = r.data;
+        item.appendChild(createCopyButton(copyData));
 
         // SecID line — clickable for drill-down when browsing registry results
         const secidLine = document.createElement("div");
@@ -560,8 +623,10 @@
       output.textContent = "";
       addCloseButton(output);
 
-      // Breadcrumbs
-      output.appendChild(renderBreadcrumbs());
+      // Breadcrumbs + Copy JSON
+      const navRow = renderBreadcrumbs();
+      navRow.appendChild(createCopyButton(data, "copy-json-btn"));
+      output.appendChild(navRow);
 
       if (data.results && data.results.length > 0) {
         for (const r of data.results) {
