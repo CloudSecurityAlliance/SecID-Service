@@ -2,6 +2,7 @@ node_modules/
 dist/
 .wrangler/
 .dev.vars
+.env
 src/registry.ts
 website/node_modules/
 website/dist/
