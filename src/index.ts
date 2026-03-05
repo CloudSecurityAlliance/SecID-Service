@@ -2,20 +2,43 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handleResolve, handleRegistryDownload } from "./api";
 import { handleMCP } from "./mcp";
+import type { AppEnv } from "./types";
+import { buildErrorEntry, logError } from "./debug";
 
-const app = new Hono();
+const app = new Hono<AppEnv>();
 
 app.use("*", cors());
+
+// Global error handler — catches anything that escapes individual route handlers
+app.onError(async (err, c) => {
+  const entry = buildErrorEntry("global", c.req.url, err, c.req.raw);
+  const errorId = await logError(c.env.secid_DEBUG_LOGS, entry);
+
+  return c.json(
+    {
+      secid_query: c.req.query("secid") ?? "",
+      status: "error",
+      results: [],
+      message: `Internal error resolving query. Reference: ${errorId}`,
+      error_id: errorId,
+    },
+    500,
+  );
+});
 
 app.get("/api/v1/resolve", handleResolve);
 app.get("/api/v1/registry.json", handleRegistryDownload);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-// MCP Streamable HTTP endpoint
+// MCP Streamable HTTP endpoint (POST only — stateless, no SSE streaming)
 app.post("/mcp", handleMCP);
-app.get("/mcp", handleMCP);
-app.delete("/mcp", handleMCP);
+app.get("/mcp", (c) =>
+  c.json({ jsonrpc: "2.0", error: { code: -32000, message: "SSE streaming not supported. Use POST for JSON-RPC requests." }, id: null }, 405)
+);
+app.delete("/mcp", (c) =>
+  c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Session management not supported. This is a stateless server." }, id: null }, 405)
+);
 
 // 404 for unmatched routes (static assets are served before this by [assets])
 app.all("*", (c) => c.json({ error: "Not found" }, 404));

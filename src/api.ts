@@ -2,14 +2,16 @@ import type { Context } from "hono";
 import { parseSecID } from "./parser";
 import { resolve } from "./resolver";
 import { REGISTRY } from "./registry";
+import type { AppEnv } from "./types";
+import { buildErrorEntry, logError } from "./debug";
 
-export function handleRegistryDownload(c: Context): Response {
+export function handleRegistryDownload(c: Context<AppEnv>): Response {
   return c.json(REGISTRY, 200, {
     "Content-Disposition": 'attachment; filename="secid-registry.json"',
   });
 }
 
-export async function handleResolve(c: Context): Promise<Response> {
+export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
   const rawQuery = c.req.query("secid") ?? "";
 
   if (!rawQuery) {
@@ -34,8 +36,23 @@ export async function handleResolve(c: Context): Promise<Response> {
     });
   }
 
-  const parsed = parseSecID(decoded, REGISTRY);
-  const result = resolve(parsed, REGISTRY);
+  try {
+    const parsed = parseSecID(decoded, REGISTRY);
+    const result = resolve(parsed, REGISTRY);
+    return c.json(result);
+  } catch (err) {
+    const entry = buildErrorEntry("api.resolve", decoded, err, c.req.raw);
+    const errorId = await logError(c.env.secid_DEBUG_LOGS, entry);
 
-  return c.json(result);
+    return c.json(
+      {
+        secid_query: decoded,
+        status: "error",
+        results: [],
+        message: `Internal error resolving query. Reference: ${errorId}`,
+        error_id: errorId,
+      },
+      500,
+    );
+  }
 }

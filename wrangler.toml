@@ -7,5 +7,10 @@ routes = [
   { pattern = "secid.cloudsecurityalliance.org/*", zone_id = "113bb8004441490558a7ce8b4b611cc1" },
 ]
 
+[[kv_namespaces]]
+binding = "secid_DEBUG_LOGS"
+id = "d5ea6878113049a6896c916dd873c8f6"
+preview_id = "a3f479016cda4c719122ec3bcc276c54"
+
 [assets]
 directory = "./website/dist"

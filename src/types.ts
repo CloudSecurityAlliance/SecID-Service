@@ -23,6 +23,7 @@ export interface ParsedSecID {
   version: string | null; // @version after name
   subpath: string | null; // Everything after #
   itemVersion: string | null; // @version after subpath item (future)
+  qualifiers: Record<string, string> | null; // ?key=value pairs
 }
 
 // ── Registry Data Structures ──
@@ -68,6 +69,7 @@ export interface MatchNodeData {
   // Child-level fields
   url?: string;
   format?: string;
+  content_type?: string; // MIME type from HTTP Content-Type header
   type?: string;
   note?: string;
   variables?: Record<string, VariableDefinition>;
@@ -123,6 +125,16 @@ export interface RegistryNamespace {
 // The compiled registry: type → namespace → data
 export type Registry = Record<string, Record<string, RegistryNamespace>>;
 
+// ── App Environment ──
+// Cloudflare Worker bindings available via Hono context
+export interface AppBindings {
+  secid_DEBUG_LOGS?: KVNamespace;
+}
+
+export type AppEnv = {
+  Bindings: AppBindings;
+};
+
 // ── API Response Types ──
 // Per API-RESPONSE-FORMAT.md
 
@@ -137,6 +149,7 @@ export interface ResolutionResult {
   secid: string;
   weight: number;
   url: string;
+  content_type?: string; // MIME type of the resource at the URL
 }
 
 export interface RegistryResult {

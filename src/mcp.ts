@@ -5,7 +5,9 @@ import { parseSecID } from "./parser";
 import { resolve } from "./resolver";
 import { REGISTRY } from "./registry";
 import { SECID_TYPES } from "./types";
+import type { AppEnv } from "./types";
 import type { Context } from "hono";
+import { buildErrorEntry, logError } from "./debug";
 
 // ── Documentation resources ──
 // These are MCP resources containing instructions for building SecID clients.
@@ -280,7 +282,7 @@ Results contain { secid, data } with registry metadata (official_name, patterns,
 
 Use this to help users construct valid SecID strings or to explore what the registry covers.`;
 
-function createMcpServer(): McpServer {
+function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
   const server = new McpServer({
     name: "secid",
     version: "0.2.0",
@@ -292,11 +294,29 @@ function createMcpServer(): McpServer {
     RESOLVE_DESCRIPTION,
     { secid: z.string().describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search") },
     async ({ secid }) => {
-      const parsed = parseSecID(secid, REGISTRY);
-      const result = resolve(parsed, REGISTRY);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+      try {
+        const parsed = parseSecID(secid, REGISTRY);
+        const result = resolve(parsed, REGISTRY);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        const entry = buildErrorEntry("mcp.tool.resolve", secid, err, req);
+        const errorId = await logError(kv, entry);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: secid,
+              status: "error",
+              results: [],
+              message: `Internal error. Reference: ${errorId}`,
+              error_id: errorId,
+            }),
+          }],
+          isError: true,
+        };
+      }
     }
   );
 
@@ -310,11 +330,29 @@ function createMcpServer(): McpServer {
     },
     async ({ type, identifier }) => {
       const secid = `secid:${type}/${identifier}`;
-      const parsed = parseSecID(secid, REGISTRY);
-      const result = resolve(parsed, REGISTRY);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+      try {
+        const parsed = parseSecID(secid, REGISTRY);
+        const result = resolve(parsed, REGISTRY);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        const entry = buildErrorEntry("mcp.tool.lookup", secid, err, req);
+        const errorId = await logError(kv, entry);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: secid,
+              status: "error",
+              results: [],
+              message: `Internal error. Reference: ${errorId}`,
+              error_id: errorId,
+            }),
+          }],
+          isError: true,
+        };
+      }
     }
   );
 
@@ -324,13 +362,31 @@ function createMcpServer(): McpServer {
     DESCRIBE_DESCRIPTION,
     { secid: z.string().describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'") },
     async ({ secid }) => {
-      const parsed = parseSecID(secid, REGISTRY);
-      // Strip subpath to get source-level info
-      parsed.subpath = null;
-      const result = resolve(parsed, REGISTRY);
-      return {
-        content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-      };
+      try {
+        const parsed = parseSecID(secid, REGISTRY);
+        // Strip subpath to get source-level info
+        parsed.subpath = null;
+        const result = resolve(parsed, REGISTRY);
+        return {
+          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+        };
+      } catch (err) {
+        const entry = buildErrorEntry("mcp.tool.describe", secid, err, req);
+        const errorId = await logError(kv, entry);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: secid,
+              status: "error",
+              results: [],
+              message: `Internal error. Reference: ${errorId}`,
+              error_id: errorId,
+            }),
+          }],
+          isError: true,
+        };
+      }
     }
   );
 
@@ -409,15 +465,29 @@ function createMcpServer(): McpServer {
   return server;
 }
 
-export async function handleMCP(c: Context): Promise<Response> {
-  const server = createMcpServer();
+export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
+  const server = createMcpServer(c.env.secid_DEBUG_LOGS, c.req.raw);
 
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined, // Stateless — no session tracking
-    enableJsonResponse: true,      // Prefer JSON for simple req/res
-  });
+  try {
+    const transport = new WebStandardStreamableHTTPServerTransport({
+      sessionIdGenerator: undefined, // Stateless — no session tracking
+      enableJsonResponse: true,      // Prefer JSON for simple req/res
+    });
 
-  await server.connect(transport);
-  const response = await transport.handleRequest(c.req.raw);
-  return response;
+    await server.connect(transport);
+    const response = await transport.handleRequest(c.req.raw);
+    return response;
+  } catch (err) {
+    const entry = buildErrorEntry("mcp.transport", c.req.url, err, c.req.raw);
+    const errorId = await logError(c.env.secid_DEBUG_LOGS, entry);
+
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: { code: -32603, message: `Internal error. Reference: ${errorId}` },
+        id: null,
+      },
+      500,
+    );
+  }
 }
