@@ -112,8 +112,9 @@
     color: #fff;
   }
   .resolver-output {
+    position: relative;
     margin-top: 1rem;
-    padding: 1rem;
+    padding: 1rem 1rem 1rem 2.2rem;
     border-radius: 4px;
     background: var(--bg);
     border: 1px solid var(--border);
@@ -121,6 +122,28 @@
     font-size: 0.85rem;
     line-height: 1.5;
     overflow-x: auto;
+  }
+  .output-close-btn {
+    position: absolute;
+    top: 0.4rem;
+    left: 0.4rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    width: 1.4rem;
+    height: 1.4rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    line-height: 1;
+    padding: 0;
+  }
+  .output-close-btn:hover {
+    color: var(--red);
+    border-color: var(--red);
   }
 
   /* Status badges */
@@ -360,6 +383,21 @@
     return res.json();
   }
 
+  // --- Close button helper ---
+  function addCloseButton(container: HTMLElement): void {
+    const btn = document.createElement("button");
+    btn.className = "output-close-btn";
+    btn.type = "button";
+    btn.textContent = "\u00d7";
+    btn.title = "Close";
+    btn.addEventListener("click", () => {
+      container.hidden = true;
+      container.textContent = "";
+      exitExplorerMode();
+    });
+    container.appendChild(btn);
+  }
+
   // --- Clipboard helper ---
   function createCopyButton(data: unknown, className = "result-copy-btn"): HTMLButtonElement {
     const btn = document.createElement("button");
@@ -416,6 +454,7 @@
   // --- Render resolver response ---
   function renderResponse(container: HTMLElement, data: ResolveResponse): void {
     container.textContent = "";
+    addCloseButton(container);
 
     // Header row: status badge + query + copy-all button
     const header = document.createElement("div");
@@ -543,6 +582,7 @@
   // --- Explorer: root view (7 type cards) ---
   function renderExplorerRoot(): void {
     output.textContent = "";
+    addCloseButton(output);
 
     // Breadcrumbs
     output.appendChild(renderBreadcrumbs());
@@ -595,6 +635,7 @@
     try {
       const data = await fetchResolve(secid);
       output.textContent = "";
+      addCloseButton(output);
 
       // Breadcrumbs
       output.appendChild(renderBreadcrumbs());
