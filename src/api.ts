@@ -3,6 +3,12 @@ import { parseSecID } from "./parser";
 import { resolve } from "./resolver";
 import { REGISTRY } from "./registry";
 
+export function handleRegistryDownload(c: Context): Response {
+  return c.json(REGISTRY, 200, {
+    "Content-Disposition": 'attachment; filename="secid-registry.json"',
+  });
+}
+
 export async function handleResolve(c: Context): Promise<Response> {
   const rawQuery = c.req.query("secid") ?? "";
 

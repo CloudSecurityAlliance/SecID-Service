@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { handleResolve } from "./api";
+import { handleResolve, handleRegistryDownload } from "./api";
 import { handleMCP } from "./mcp";
 
 const app = new Hono();
@@ -8,6 +8,7 @@ const app = new Hono();
 app.use("*", cors());
 
 app.get("/api/v1/resolve", handleResolve);
+app.get("/api/v1/registry.json", handleRegistryDownload);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
