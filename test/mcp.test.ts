@@ -285,7 +285,7 @@ describe("MCP end-to-end flow", () => {
     const { body: listBody } = await mcpPost(jsonrpc("resources/list", {}, 2));
     const listResp = listBody as { result?: { resources: Array<{ uri: string; name: string }> } };
     const resources = listResp.result!.resources;
-    expect(resources.length).toBe(8); // 1 registry + 7 type listings
+    expect(resources.length).toBe(10); // 1 registry + 7 type listings + 2 docs
 
     // Read a specific resource
     const { body: readBody } = await mcpPost(
@@ -295,6 +295,30 @@ describe("MCP end-to-end flow", () => {
     const ttpData = JSON.parse(readResp.result!.contents[0].text);
     expect(ttpData.type).toBe("ttp");
     expect(ttpData.namespaces.some((n: { namespace: string }) => n.namespace === "mitre.org")).toBe(true);
+  });
+
+  it("doc resources are readable and contain expected content", async () => {
+    await mcpInitialize();
+
+    // Read build-a-client guide
+    const { body: buildBody } = await mcpPost(
+      jsonrpc("resources/read", { uri: "secid://docs/build-a-client" }, 2)
+    );
+    const buildResp = buildBody as { result?: { contents: Array<{ text: string; mimeType: string }> } };
+    const buildText = buildResp.result!.contents[0].text;
+    expect(buildResp.result!.contents[0].mimeType).toBe("text/markdown");
+    expect(buildText).toContain("Encoding Gotcha");
+    expect(buildText).toContain("%23");
+    expect(buildText).toContain("Implementation Checklist");
+
+    // Read prompt template
+    const { body: promptBody } = await mcpPost(
+      jsonrpc("resources/read", { uri: "secid://docs/prompt-template" }, 3)
+    );
+    const promptResp = promptBody as { result?: { contents: Array<{ text: string; mimeType: string }> } };
+    const promptText = promptResp.result!.contents[0].text;
+    expect(promptText).toContain("{LANGUAGE}");
+    expect(promptText).toContain("SecIDClient");
   });
 
   it("tool call with Debian DSA exercises range table through MCP", async () => {

@@ -7,6 +7,202 @@ import { REGISTRY } from "./registry";
 import { SECID_TYPES } from "./types";
 import type { Context } from "hono";
 
+// ── Documentation resources ──
+// These are MCP resources containing instructions for building SecID clients.
+// An AI agent can read these to generate a working client in any language.
+
+const BUILD_A_CLIENT_DOC = `# Build a SecID Client
+
+Everything needed to generate a working SecID client in any language.
+
+## What You're Building
+
+An HTTP client for a single API endpoint that resolves security knowledge identifiers to URLs.
+
+**Base URL:** https://secid.cloudsecurityalliance.org
+**Endpoint:** GET /api/v1/resolve?secid={encoded_secid}
+**Auth:** None. No API keys, no tokens, no headers.
+
+## The One Encoding Gotcha
+
+SecID strings use # to separate subpath identifiers:
+
+    secid:advisory/mitre.org/cve#CVE-2021-44228
+
+In a URL query parameter, # is the fragment delimiter. You must encode it:
+
+    CORRECT: /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
+    WRONG:   /api/v1/resolve?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
+
+Replace # with %23 in the SecID string before appending to the URL. Verify your language's URL encoder handles this — some treat # as a fragment separator and skip it.
+
+This is the #1 failure mode for new clients.
+
+## Response Envelope
+
+Every response has the same shape:
+
+    {
+      "secid_query": "secid:advisory/mitre.org/cve#CVE-2021-44228",
+      "status": "found",
+      "results": [...],
+      "message": null
+    }
+
+Fields: secid_query (string, always), status (string, always), results (array, always), message (string, only on not_found/error).
+
+## Five Status Values
+
+- found: Exact match. Use results directly.
+- corrected: Server fixed input and resolved. Show correction; use results.
+- related: Partial match. Display registry data; may need @version.
+- not_found: Nothing matched. Show message field.
+- error: Unparseable input. Show message field.
+
+## Two Result Types
+
+Distinguish by checking for the weight field:
+
+Resolution Result (has weight + url):
+    {"secid": "secid:advisory/mitre.org/cve#CVE-2021-44228", "weight": 100, "url": "https://www.cve.org/CVERecord?id=CVE-2021-44228"}
+
+Registry Result (has data):
+    {"secid": "secid:advisory/mitre.org/cve", "data": {"official_name": "Common Vulnerabilities and Exposures", ...}}
+
+They never overlap.
+
+## Weights
+
+100 = authoritative primary source, 80 = high-quality secondary, 50 = alternative/indirect.
+Multiple results are normal. Sort by weight descending. Highest weight = best default.
+
+## Cross-Source Search
+
+Omit namespace to search all sources of a type:
+    secid:advisory/CVE-2021-44228
+Returns URLs from MITRE, NVD, Red Hat, SUSE, etc.
+
+## Version Disambiguation
+
+Sources with version_required (like OWASP Top 10) return status "related" with version info when queried without @version. Detect this and prompt user to add @version.
+
+## Query Depth
+
+    secid:advisory/mitre.org/cve#CVE-2021-44228  → Resolution results (URLs)
+    secid:advisory/mitre.org/cve                  → Registry data about CVE
+    secid:advisory/mitre.org                      → List of sources from mitre.org
+    secid:advisory                                → List of all advisory namespaces
+
+## Implementation Checklist
+
+1. Encode # as %23 in query parameter
+2. Accept any HTTP 200 response — status field tells you what happened
+3. Parse the JSON envelope with all four fields
+4. Handle all 5 status values
+5. Distinguish result types by checking for weight+url vs data
+6. Sort resolution results by weight descending
+7. Provide a best_url helper (highest-weight URL or null)
+8. Handle empty results array on not_found/error
+9. Expose the message field for guidance
+10. Support CLI mode (accept SecID as argument, print best URL)
+
+## Minimal Pseudocode
+
+    function resolve(secid_string):
+        encoded = secid_string.replace("#", "%23")
+        url = BASE_URL + "/api/v1/resolve?secid=" + encoded
+        response = http_get(url)
+        return parse_json(response.body)
+
+    function best_url(secid_string):
+        result = resolve(secid_string)
+        if result.status in ["found", "corrected"]:
+            urls = [r for r in result.results if r.weight exists]
+            urls.sort_by(weight, descending)
+            return urls[0].url if urls else null
+        return null
+`;
+
+const PROMPT_TEMPLATE_DOC = `# SecID Client Prompt Template
+
+Copy everything below, replace {LANGUAGE} with your language, and give to an AI assistant.
+
+---
+
+Build me a SecID client library in {LANGUAGE}. Single file, zero external dependencies (stdlib only). Include CLI mode.
+
+## SecID
+
+Universal grammar for security knowledge. Format: secid:type/namespace/name[@version]#subpath
+
+Examples:
+- secid:advisory/mitre.org/cve#CVE-2021-44228 (CVE record)
+- secid:weakness/mitre.org/cwe#CWE-79 (CWE weakness)
+- secid:advisory/CVE-2021-44228 (cross-source search)
+
+## API Contract
+
+One endpoint: GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={encoded_secid}
+No auth. CORS enabled.
+
+CRITICAL: # in SecID must be encoded as %23 in the query parameter.
+    CORRECT: ?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
+    WRONG:   ?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
+
+Response (always HTTP 200 for processed queries):
+    {
+      "secid_query": "string (echoed input)",
+      "status": "found|corrected|related|not_found|error",
+      "results": [
+        {"secid": "string", "weight": 100, "url": "https://..."} // Resolution
+        // OR
+        {"secid": "string", "data": {"official_name": "..."}}    // Registry
+      ],
+      "message": "string|null (guidance on not_found/error)"
+    }
+
+Status: found (use results), corrected (use results, show correction), related (show data, may need @version), not_found (show message), error (show message).
+Weights: 100=primary, 80=secondary, 50=alternative. Sort descending.
+
+## Required API Surface
+
+    class SecIDClient:
+        constructor(base_url = "https://secid.cloudsecurityalliance.org")
+        resolve(secid: string) -> SecIDResponse
+        best_url(secid: string) -> string | null
+        lookup(type: string, identifier: string) -> SecIDResponse
+
+    class SecIDResponse:
+        secid_query: string
+        status: string
+        results: list
+        message: string | null
+        property best_url -> string | null
+        property was_corrected -> bool
+        property resolution_results -> list (weight+url only, sorted)
+        property registry_results -> list (data only)
+
+## CLI Mode
+
+    $ {LANGUAGE} secid_client "secid:advisory/mitre.org/cve#CVE-2021-44228"
+    https://www.cve.org/CVERecord?id=CVE-2021-44228
+
+    $ {LANGUAGE} secid_client --json "secid:advisory/mitre.org/cve#CVE-2021-44228"
+    {full JSON}
+
+## Requirements
+
+1. Single file, zero dependencies
+2. # -> %23 encoding (test this!)
+3. Handle all 5 status values
+4. Distinguish resolution (weight+url) from registry (data) results
+5. Sort by weight descending
+6. best_url helper
+7. CLI mode with --json flag
+8. Type hints/annotations
+9. Docstrings explaining encoding gotcha and status values
+`;
+
 // ── Tool descriptions ──
 // These are the primary "SDK" for AI agents. An AI seeing these for the first
 // time should understand the full API contract from the descriptions alone.
@@ -181,6 +377,34 @@ function createMcpServer(): McpServer {
       }
     );
   }
+
+  // ── Resource: build-a-client guide ──
+  server.resource(
+    "docs-build-a-client",
+    "secid://docs/build-a-client",
+    { description: "Complete instructions for building a SecID HTTP client in any programming language. Covers the API contract, encoding rules (# must be %23), response handling, status values, result types, weights, cross-source search, version disambiguation, and a 10-item implementation checklist. Read this to generate a working client." },
+    async () => ({
+      contents: [{
+        uri: "secid://docs/build-a-client",
+        mimeType: "text/markdown",
+        text: BUILD_A_CLIENT_DOC,
+      }],
+    })
+  );
+
+  // ── Resource: prompt template for generating clients ──
+  server.resource(
+    "docs-prompt-template",
+    "secid://docs/prompt-template",
+    { description: "Ready-to-use prompt template for generating a SecID client in any language. Replace {LANGUAGE} with your target language and give to an AI assistant. Contains the full API contract, required class interface, CLI mode spec, and implementation requirements — everything needed in a single copy-paste prompt." },
+    async () => ({
+      contents: [{
+        uri: "secid://docs/prompt-template",
+        mimeType: "text/markdown",
+        text: PROMPT_TEMPLATE_DOC,
+      }],
+    })
+  );
 
   return server;
 }
