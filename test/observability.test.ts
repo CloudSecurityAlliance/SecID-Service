@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { uuidv7, buildErrorEntry, logError, extractRequestMetadata } from "../src/debug";
+import { uuidv7, buildErrorEntry, recordError, extractRequestMetadata } from "../src/observability";
 
 const UUID_V7_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
@@ -80,10 +80,10 @@ describe("buildErrorEntry", () => {
   });
 });
 
-describe("logError", () => {
+describe("recordError", () => {
   it("returns error_id even without KV (console fallback)", async () => {
     const entry = buildErrorEntry("global", "test", new Error("no kv"), makeRequest());
-    const errorId = await logError(undefined, entry);
+    const errorId = await recordError(undefined, entry);
 
     expect(errorId).toBe(entry.error_id);
     expect(errorId).toMatch(UUID_V7_REGEX);

@@ -128,7 +128,7 @@ export type Registry = Record<string, Record<string, RegistryNamespace>>;
 // ── App Environment ──
 // Cloudflare Worker bindings available via Hono context
 export interface AppBindings {
-  secid_DEBUG_LOGS?: KVNamespace;
+  secid_OBSERVABILITY?: KVNamespace;
 }
 
 export type AppEnv = {

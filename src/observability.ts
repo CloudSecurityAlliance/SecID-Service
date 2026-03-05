@@ -1,6 +1,8 @@
-// ── Debug Logging ──
-// Structured error logging with UUIDv7 identifiers, stored in Cloudflare KV.
+// ── Observability ──
+// Structured error recording with UUIDv7 identifiers, stored in Cloudflare KV.
 // Errors are surfaced to callers via error_id; full diagnostics accessed via `wrangler kv`.
+// This is always-on production infrastructure, not debug mode. See:
+// CINO-Platform-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md
 
 // ── UUIDv7 (RFC 9562 §5.7) ──
 // 48-bit ms timestamp + 74 random bits. Time-sortable, no dependencies.
@@ -29,7 +31,7 @@ export type CodePath =
   | "mcp.transport"
   | "global";
 
-export interface DebugLogEntry {
+export interface ObservabilityEntry {
   error_id: string;
   timestamp: string;
   code_path: CodePath;
@@ -57,7 +59,7 @@ const SAFE_HEADERS = new Set([
   "x-request-id",
 ]);
 
-export function extractRequestMetadata(req: Request): DebugLogEntry["request_metadata"] {
+export function extractRequestMetadata(req: Request): ObservabilityEntry["request_metadata"] {
   const headers: Record<string, string> = {};
   for (const [key, value] of req.headers.entries()) {
     if (SAFE_HEADERS.has(key.toLowerCase())) {
@@ -83,7 +85,7 @@ export function buildErrorEntry(
   error: unknown,
   req: Request,
   parsedResult?: unknown,
-): DebugLogEntry {
+): ObservabilityEntry {
   const err = error instanceof Error ? error : new Error(String(error));
   return {
     error_id: uuidv7(),
@@ -99,12 +101,12 @@ export function buildErrorEntry(
 
 const TTL_30_DAYS = 30 * 24 * 60 * 60;
 
-export async function logError(
+export async function recordError(
   kv: KVNamespace | undefined,
-  entry: DebugLogEntry,
+  entry: ObservabilityEntry,
 ): Promise<string> {
   if (!kv) {
-    console.error("[secid-debug]", JSON.stringify(entry));
+    console.error("[secid-observability]", JSON.stringify(entry));
     return entry.error_id;
   }
 
@@ -113,8 +115,8 @@ export async function logError(
       expirationTtl: TTL_30_DAYS,
     });
   } catch (kvError) {
-    console.error("[secid-debug] KV write failed:", kvError);
-    console.error("[secid-debug]", JSON.stringify(entry));
+    console.error("[secid-observability] KV write failed:", kvError);
+    console.error("[secid-observability]", JSON.stringify(entry));
   }
 
   return entry.error_id;

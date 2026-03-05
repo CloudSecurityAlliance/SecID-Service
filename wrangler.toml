@@ -8,9 +8,9 @@ routes = [
 ]
 
 [[kv_namespaces]]
-binding = "secid_DEBUG_LOGS"
-id = "d5ea6878113049a6896c916dd873c8f6"
-preview_id = "a3f479016cda4c719122ec3bcc276c54"
+binding = "secid_OBSERVABILITY"
+id = "c5cbc52b9a724433b3043efdf31857f4"
+preview_id = "3bc7078377cb44bc8fc63e5f9f344392"
 
 [assets]
 directory = "./website/dist"

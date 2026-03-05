@@ -3,7 +3,7 @@ import { cors } from "hono/cors";
 import { handleResolve, handleRegistryDownload } from "./api";
 import { handleMCP } from "./mcp";
 import type { AppEnv } from "./types";
-import { buildErrorEntry, logError } from "./debug";
+import { buildErrorEntry, recordError } from "./observability";
 
 const app = new Hono<AppEnv>();
 
@@ -12,7 +12,7 @@ app.use("*", cors());
 // Global error handler — catches anything that escapes individual route handlers
 app.onError(async (err, c) => {
   const entry = buildErrorEntry("global", c.req.url, err, c.req.raw);
-  const errorId = await logError(c.env.secid_DEBUG_LOGS, entry);
+  const errorId = await recordError(c.env.secid_OBSERVABILITY, entry);
 
   return c.json(
     {

@@ -7,7 +7,7 @@ import { REGISTRY } from "./registry";
 import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
 import type { Context } from "hono";
-import { buildErrorEntry, logError } from "./debug";
+import { buildErrorEntry, recordError } from "./observability";
 
 // ── Documentation resources ──
 // These are MCP resources containing instructions for building SecID clients.
@@ -302,7 +302,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.resolve", secid, err, req);
-        const errorId = await logError(kv, entry);
+        const errorId = await recordError(kv, entry);
         return {
           content: [{
             type: "text",
@@ -338,7 +338,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.lookup", secid, err, req);
-        const errorId = await logError(kv, entry);
+        const errorId = await recordError(kv, entry);
         return {
           content: [{
             type: "text",
@@ -372,7 +372,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.describe", secid, err, req);
-        const errorId = await logError(kv, entry);
+        const errorId = await recordError(kv, entry);
         return {
           content: [{
             type: "text",
@@ -466,7 +466,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
 }
 
 export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
-  const server = createMcpServer(c.env.secid_DEBUG_LOGS, c.req.raw);
+  const server = createMcpServer(c.env.secid_OBSERVABILITY, c.req.raw);
 
   try {
     const transport = new WebStandardStreamableHTTPServerTransport({
@@ -479,7 +479,7 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
     return response;
   } catch (err) {
     const entry = buildErrorEntry("mcp.transport", c.req.url, err, c.req.raw);
-    const errorId = await logError(c.env.secid_DEBUG_LOGS, entry);
+    const errorId = await recordError(c.env.secid_OBSERVABILITY, entry);
 
     return c.json(
       {
