@@ -16,7 +16,17 @@ export async function handleResolve(c: Context): Promise<Response> {
   }
 
   // Decode percent-encoded characters (browser/client may have encoded # as %23, etc.)
-  const decoded = decodeURIComponent(rawQuery);
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(rawQuery);
+  } catch {
+    return c.json({
+      secid_query: rawQuery,
+      status: "error",
+      results: [],
+      message: "Malformed percent-encoding in query parameter.",
+    });
+  }
 
   const parsed = parseSecID(decoded, REGISTRY);
   const result = resolve(parsed, REGISTRY);
