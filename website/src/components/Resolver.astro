@@ -1,6 +1,6 @@
 ---
 // Interactive SecID resolver — calls /api/v1/resolve and displays results
-// Features: copy buttons, drill-down links, status badges, registry explorer
+// Features: drill-down links, status badges, registry explorer
 ---
 
 <div class="resolver">
@@ -23,8 +23,9 @@
       <button type="button" data-example="secid:advisory/CVE-2024-1234">Cross-source</button>
       <button type="button" data-example="secid:weakness">Browse weaknesses</button>
     </div>
-    <div class="resolver-explore-row">
+    <div class="resolver-actions-row">
       <button type="button" id="explore-btn">Explore Registry</button>
+      <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener" class="registry-link">Download Registry Data</a>
     </div>
   </form>
   <div id="resolver-output" class="resolver-output" hidden></div>
@@ -94,10 +95,13 @@
     background: var(--accent);
     color: #fff;
   }
-  .resolver-explore-row {
+  .resolver-actions-row {
     margin-top: 0.75rem;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
   }
-  .resolver-explore-row button {
+  .resolver-actions-row button {
     background: none;
     border: 1px solid var(--accent);
     border-radius: 4px;
@@ -107,9 +111,17 @@
     color: var(--accent);
     cursor: pointer;
   }
-  .resolver-explore-row button:hover {
+  .resolver-actions-row button:hover {
     background: var(--accent);
     color: #fff;
+  }
+  .registry-link {
+    font-size: 0.85rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+  .registry-link:hover {
+    text-decoration: underline;
   }
   .resolver-output {
     position: relative;
@@ -172,37 +184,13 @@
     color: #fff;
   }
 
-  /* Result items with copy buttons */
+  /* Result items */
   .result-item {
     margin-top: 0.5rem;
     padding: 0.75rem 1rem;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--surface);
-  }
-  .copy-icon-btn {
-    display: inline-flex;
-    align-items: center;
-    background: none;
-    border: none;
-    padding: 0.1rem;
-    margin-left: 0.4rem;
-    color: var(--fg-muted);
-    cursor: pointer;
-    vertical-align: middle;
-    opacity: 0.6;
-  }
-  .copy-icon-btn:hover {
-    color: var(--accent);
-    opacity: 1;
-  }
-  .copy-icon-btn.copied {
-    color: var(--green);
-    opacity: 1;
-  }
-  .copy-icon-btn svg {
-    width: 14px;
-    height: 14px;
   }
 
   /* Drill-down links */
@@ -215,7 +203,6 @@
   .result-secid-link:hover {
     border-bottom-style: solid;
   }
-
 
   /* Explorer styles */
   .explorer-breadcrumbs {
@@ -380,67 +367,6 @@
     container.appendChild(btn);
   }
 
-  // --- Clipboard helper (inline icon) ---
-  function makeCopyIcon(): SVGElement {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "2");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
-    rect.setAttribute("x", "9"); rect.setAttribute("y", "9");
-    rect.setAttribute("width", "13"); rect.setAttribute("height", "13");
-    rect.setAttribute("rx", "2");
-    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
-    path.setAttribute("d", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1");
-    svg.appendChild(rect);
-    svg.appendChild(path);
-    return svg;
-  }
-
-  function makeCheckIcon(): SVGElement {
-    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-    svg.setAttribute("viewBox", "0 0 24 24");
-    svg.setAttribute("fill", "none");
-    svg.setAttribute("stroke", "currentColor");
-    svg.setAttribute("stroke-width", "2");
-    svg.setAttribute("stroke-linecap", "round");
-    svg.setAttribute("stroke-linejoin", "round");
-    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
-    poly.setAttribute("points", "20 6 9 17 4 12");
-    svg.appendChild(poly);
-    return svg;
-  }
-
-  function createCopyButton(data: unknown): HTMLButtonElement {
-    const btn = document.createElement("button");
-    btn.className = "copy-icon-btn";
-    btn.type = "button";
-    btn.title = "Copy JSON";
-    btn.appendChild(makeCopyIcon());
-    btn.addEventListener("click", async (e) => {
-      e.stopPropagation();
-      try {
-        await navigator.clipboard.writeText(
-          typeof data === "string" ? data : JSON.stringify(data, null, 2)
-        );
-        btn.textContent = "";
-        btn.appendChild(makeCheckIcon());
-        btn.classList.add("copied");
-        setTimeout(() => {
-          btn.textContent = "";
-          btn.appendChild(makeCopyIcon());
-          btn.classList.remove("copied");
-        }, 1500);
-      } catch {
-        // silent fail
-      }
-    });
-    return btn;
-  }
-
   // --- Drill-down: set input and resolve ---
   function resolveAndRender(secid: string): void {
     input.value = secid;
@@ -473,7 +399,7 @@
     container.textContent = "";
     addCloseButton(container);
 
-    // Header row: status badge + query + copy-all button
+    // Header row: status badge + query
     const header = document.createElement("div");
     header.style.display = "flex";
     header.style.alignItems = "center";
@@ -490,7 +416,6 @@
     querySpan.textContent = data.secid_query;
     header.appendChild(querySpan);
 
-    header.appendChild(createCopyButton(data));
     container.appendChild(header);
 
     // Message if present
@@ -537,12 +462,6 @@
           weightSpan.style.color = "var(--fg-muted)";
           secidLine.appendChild(weightSpan);
         }
-        // Copy icon at end of secid line
-        const copyData: Record<string, unknown> = { secid: r.secid };
-        if (r.weight != null) copyData.weight = r.weight;
-        if (r.url) copyData.url = r.url;
-        if (r.data) copyData.data = r.data;
-        secidLine.appendChild(createCopyButton(copyData));
         item.appendChild(secidLine);
 
         // URL as clickable link
@@ -603,17 +522,6 @@
     // Breadcrumbs
     output.appendChild(renderBreadcrumbs());
 
-    // Copy full JSON button at top level
-    const copyRow = document.createElement("div");
-    copyRow.style.marginBottom = "0.75rem";
-    const types = Object.keys(TYPE_DESCRIPTIONS);
-    copyRow.appendChild(
-      createCopyButton(
-        types.map((t) => ({ type: t, secid: `secid:${t}` }))
-      )
-    );
-    output.appendChild(copyRow);
-
     // Type grid
     const grid = document.createElement("div");
     grid.className = "explorer-type-grid";
@@ -654,12 +562,6 @@
 
       // Breadcrumbs
       output.appendChild(renderBreadcrumbs());
-
-      // Copy JSON for this level
-      const copyRow = document.createElement("div");
-      copyRow.style.marginBottom = "0.75rem";
-      copyRow.appendChild(createCopyButton(data));
-      output.appendChild(copyRow);
 
       if (data.results && data.results.length > 0) {
         for (const r of data.results) {
@@ -704,14 +606,6 @@
             // Leaf node: show as detail card
             const detail = document.createElement("div");
             detail.className = "explorer-detail-section";
-            detail.style.position = "relative";
-
-            // Copy button
-            const detailCopy: Record<string, unknown> = { secid: r.secid };
-            if (r.weight != null) detailCopy.weight = r.weight;
-            if (r.url) detailCopy.url = r.url;
-            if (r.data) detailCopy.data = r.data;
-            detail.appendChild(createCopyButton(detailCopy));
 
             const h4 = document.createElement("h4");
             h4.textContent = r.secid;
