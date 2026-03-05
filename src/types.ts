@@ -56,6 +56,12 @@ export interface LookupTableEntry {
   title?: string;
 }
 
+export interface LangConfig {
+  available: string[];       // ISO 639-1 codes: ["en", "de", "fr", ...]
+  default: string;           // Default language code (e.g., "en")
+  url_transform?: string;    // "uppercase" → "EN", null/absent → as-is
+}
+
 export interface MatchNodeData {
   // Source-level fields
   official_name?: string;
@@ -70,6 +76,7 @@ export interface MatchNodeData {
   url?: string;
   format?: string;
   content_type?: string; // MIME type from HTTP Content-Type header
+  lang?: LangConfig;     // Language availability and URL substitution config
   type?: string;
   note?: string;
   variables?: Record<string, VariableDefinition>;
@@ -150,6 +157,7 @@ export interface ResolutionResult {
   weight: number;
   url: string;
   content_type?: string; // MIME type of the resource at the URL
+  lang?: string;         // Language code of the resolved result
 }
 
 export interface RegistryResult {

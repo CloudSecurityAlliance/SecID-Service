@@ -6,7 +6,6 @@ import type {
   ResolutionResult,
   ResolveResponse,
   MatchNode,
-  MatchNodeData,
   VariableDefinition,
   LookupTableEntry,
   ResultEntry,
@@ -221,17 +220,17 @@ function resolveSubpath(
   );
 
   if (results.length > 0) {
-    const filtered = applyContentTypeFilter(results, parsed.qualifiers);
+    const filtered = applyQualifierFilters(results, parsed.qualifiers);
     if (filtered === null) {
-      const available = [...new Set(
-        results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
-          .map((r) => r.content_type!)
-      )];
-      return response(query, "not_found", [],
-        `No results with content_type "${parsed.qualifiers!.content_type}". Available: ${available.join(", ") || "none declared"}. Remove ?content_type to see all.`
-      );
+      return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
     }
     return response(query, "found", filtered);
+  }
+
+  // Check if subpath matched but lang was unavailable (results empty due to lang skip)
+  if (parsed.qualifiers?.lang) {
+    const langMsg = buildLangNotFoundMessage(node.children, parsed.subpath!, parsed.qualifiers.lang);
+    if (langMsg) return response(query, "not_found", [], langMsg);
   }
 
   // Subpath didn't match any child pattern
@@ -322,17 +321,17 @@ function resolveVersioned(
   );
 
   if (results.length > 0) {
-    const filtered = applyContentTypeFilter(results, parsed.qualifiers);
+    const filtered = applyQualifierFilters(results, parsed.qualifiers);
     if (filtered === null) {
-      const available = [...new Set(
-        results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
-          .map((r) => r.content_type!)
-      )];
-      return response(query, "not_found", [],
-        `No results with content_type "${parsed.qualifiers!.content_type}". Available: ${available.join(", ") || "none declared"}. Remove ?content_type to see all.`
-      );
+      return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
     }
     return response(query, "found", filtered);
+  }
+
+  // Check if subpath matched but lang was unavailable
+  if (parsed.qualifiers?.lang) {
+    const langMsg = buildLangNotFoundMessage(versionChild.children, parsed.subpath!, parsed.qualifiers.lang);
+    if (langMsg) return response(query, "not_found", [], langMsg);
   }
 
   return response(
@@ -354,10 +353,19 @@ function matchChildrenAndResolve(
 ): ResultEntry[] {
   const results: ResultEntry[] = [];
   const slugNode = nameNode ?? parentNode;
+  const qualifiers = parsed.qualifiers;
 
   for (const child of children) {
     if (!matchesAnyPattern(child.patterns, subpath)) {
       continue;
+    }
+
+    // Validate lang qualifier against available languages
+    if (qualifiers?.lang && child.data.lang) {
+      if (!child.data.lang.available.includes(qualifiers.lang)) {
+        // Requested language not available — skip this child (caller handles not_found)
+        continue;
+      }
     }
 
     const nameSlug = extractNameSlug(slugNode);
@@ -366,11 +374,20 @@ function matchChildrenAndResolve(
       : `secid:${parsed.type}/${parsed.namespace}/${nameSlug}#${subpath}`;
 
     // Try to build a URL (parentNode has the notes for variable extraction)
-    const url = resolveChildUrl(child, subpath, parentNode);
+    const url = resolveChildUrl(child, subpath, parentNode, qualifiers);
 
     if (url) {
       const res: ResolutionResult = { secid, weight: child.weight, url };
       if (child.data.content_type) res.content_type = child.data.content_type;
+
+      // Set lang on result
+      if (child.data.lang) {
+        const langCode = qualifiers?.lang ?? child.data.lang.default;
+        res.lang = langCode;
+        // +1 weight nudge for default language when no lang qualifier specified
+        if (!qualifiers?.lang) res.weight += 1;
+      }
+
       results.push(res);
     } else if (child.data.lookup_table) {
       // Lookup table: try direct key match
@@ -423,7 +440,8 @@ function matchChildrenAndResolve(
 function resolveChildUrl(
   child: MatchNode,
   subpath: string,
-  parentNode: MatchNode
+  parentNode: MatchNode,
+  qualifiers?: Record<string, string> | null
 ): string | null {
   const urlTemplate = child.data.url;
   if (!urlTemplate) return null;
@@ -441,6 +459,13 @@ function resolveChildUrl(
         variables[varName] = value;
       }
     }
+  }
+
+  // Add qualifier-derived variables (lang)
+  if (child.data.lang) {
+    const langCode = qualifiers?.lang ?? child.data.lang.default;
+    const transform = child.data.lang.url_transform;
+    variables["lang"] = transform === "uppercase" ? langCode.toUpperCase() : langCode;
   }
 
   // Always provide {id} and common transformations
@@ -549,7 +574,7 @@ function namespaceScopedSearch(
 
       const nameSlug = extractNameSlug(node);
       const secid = `secid:${parsed.type}/${parsed.namespace}/${nameSlug}#${identifier}`;
-      const url = resolveChildUrl(child, identifier, node);
+      const url = resolveChildUrl(child, identifier, node, parsed.qualifiers);
 
       if (url) {
         const res: ResolutionResult = { secid, weight: child.weight, url };
@@ -596,7 +621,7 @@ function typeScopedSearch(
 
         const nameSlug = extractNameSlug(node);
         const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}#${identifier}`;
-        const url = resolveChildUrl(child, identifier, node);
+        const url = resolveChildUrl(child, identifier, node, parsed.qualifiers);
 
         if (url) {
           const res: ResolutionResult = { secid, weight: child.weight, url };
@@ -675,20 +700,81 @@ function extractNameSlug(node: MatchNode): string {
   return node.description.toLowerCase().replace(/\s+/g, "-");
 }
 
-function applyContentTypeFilter(
+function applyQualifierFilters(
   results: ResultEntry[],
   qualifiers: Record<string, string> | null
 ): ResultEntry[] | null {
-  if (!qualifiers?.content_type) return results;
-  const target = qualifiers.content_type;
-  const filtered = results.filter((r) => {
-    if (!("url" in r)) return true; // Keep RegistryResults (metadata)
-    return (r as ResolutionResult).content_type === target;
-  });
+  if (!qualifiers) return results;
+
+  let filtered = results;
+
+  // content_type filter
+  if (qualifiers.content_type) {
+    const target = qualifiers.content_type;
+    filtered = filtered.filter((r) => {
+      if (!("url" in r)) return true; // Keep RegistryResults (metadata)
+      return (r as ResolutionResult).content_type === target;
+    });
+  }
+
+  // lang filter — keep only results matching the requested language
+  if (qualifiers.lang) {
+    filtered = filtered.filter((r) => {
+      if (!("url" in r)) return true; // Keep RegistryResults
+      const res = r as ResolutionResult;
+      // If result has no lang set, it's not lang-aware — keep it
+      if (!res.lang) return true;
+      return res.lang === qualifiers.lang;
+    });
+  }
+
   // If all ResolutionResults were filtered out, signal "not found"
   const hasResolution = filtered.some((r) => "url" in r);
   if (!hasResolution && results.some((r) => "url" in r)) return null;
   return filtered;
+}
+
+/** Build a not_found response when qualifier filtering removed all results. */
+function qualifierNotFoundResponse(
+  query: string,
+  results: ResultEntry[],
+  qualifiers: Record<string, string>
+): ResolveResponse {
+  const parts: string[] = [];
+
+  if (qualifiers.content_type) {
+    const available = [...new Set(
+      results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
+        .map((r) => r.content_type!)
+    )];
+    parts.push(`No results with content_type "${qualifiers.content_type}". Available: ${available.join(", ") || "none declared"}.`);
+  }
+
+  if (qualifiers.lang) {
+    const available = [...new Set(
+      results.filter((r): r is ResolutionResult => "url" in r && !!r.lang)
+        .map((r) => r.lang!)
+    )];
+    parts.push(`No results for lang "${qualifiers.lang}". Available: ${available.join(", ") || "none declared"}.`);
+  }
+
+  parts.push("Remove qualifiers to see all results.");
+  return response(query, "not_found", [], parts.join(" "));
+}
+
+/** Check if a subpath would have matched children but was skipped due to unavailable lang. */
+function buildLangNotFoundMessage(
+  children: MatchNode[],
+  subpath: string,
+  lang: string
+): string | null {
+  for (const child of children) {
+    if (!matchesAnyPattern(child.patterns, subpath)) continue;
+    if (child.data.lang && !child.data.lang.available.includes(lang)) {
+      return `Language "${lang}" not available. Available: ${child.data.lang.available.join(", ")}. Remove ?lang to use default (${child.data.lang.default}).`;
+    }
+  }
+  return null;
 }
 
 function response(
