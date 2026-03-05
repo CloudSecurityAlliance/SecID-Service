@@ -174,33 +174,35 @@
 
   /* Result items with copy buttons */
   .result-item {
-    position: relative;
     margin-top: 0.5rem;
     padding: 0.75rem 1rem;
     border: 1px solid var(--border);
     border-radius: 4px;
     background: var(--surface);
   }
-  .result-copy-btn {
-    position: absolute;
-    top: 0.4rem;
-    right: 0.4rem;
+  .copy-icon-btn {
+    display: inline-flex;
+    align-items: center;
     background: none;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0.15rem 0.4rem;
-    font-size: 0.7rem;
+    border: none;
+    padding: 0.1rem;
+    margin-left: 0.4rem;
     color: var(--fg-muted);
     cursor: pointer;
-    font-family: var(--font-mono);
+    vertical-align: middle;
+    opacity: 0.6;
   }
-  .result-copy-btn:hover {
+  .copy-icon-btn:hover {
     color: var(--accent);
-    border-color: var(--accent);
+    opacity: 1;
   }
-  .result-copy-btn.copied {
+  .copy-icon-btn.copied {
     color: var(--green);
-    border-color: var(--green);
+    opacity: 1;
+  }
+  .copy-icon-btn svg {
+    width: 14px;
+    height: 14px;
   }
 
   /* Drill-down links */
@@ -214,26 +216,6 @@
     border-bottom-style: solid;
   }
 
-  /* Response-level copy button */
-  .response-copy-btn {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 3px;
-    padding: 0.15rem 0.5rem;
-    font-size: 0.75rem;
-    color: var(--fg-muted);
-    cursor: pointer;
-    font-family: var(--font-mono);
-    margin-left: 0.75rem;
-  }
-  .response-copy-btn:hover {
-    color: var(--accent);
-    border-color: var(--accent);
-  }
-  .response-copy-btn.copied {
-    color: var(--green);
-    border-color: var(--green);
-  }
 
   /* Explorer styles */
   .explorer-breadcrumbs {
@@ -398,27 +380,62 @@
     container.appendChild(btn);
   }
 
-  // --- Clipboard helper ---
-  function createCopyButton(data: unknown, className = "result-copy-btn"): HTMLButtonElement {
+  // --- Clipboard helper (inline icon) ---
+  function makeCopyIcon(): SVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("x", "9"); rect.setAttribute("y", "9");
+    rect.setAttribute("width", "13"); rect.setAttribute("height", "13");
+    rect.setAttribute("rx", "2");
+    const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    path.setAttribute("d", "M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1");
+    svg.appendChild(rect);
+    svg.appendChild(path);
+    return svg;
+  }
+
+  function makeCheckIcon(): SVGElement {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+    svg.setAttribute("viewBox", "0 0 24 24");
+    svg.setAttribute("fill", "none");
+    svg.setAttribute("stroke", "currentColor");
+    svg.setAttribute("stroke-width", "2");
+    svg.setAttribute("stroke-linecap", "round");
+    svg.setAttribute("stroke-linejoin", "round");
+    const poly = document.createElementNS("http://www.w3.org/2000/svg", "polyline");
+    poly.setAttribute("points", "20 6 9 17 4 12");
+    svg.appendChild(poly);
+    return svg;
+  }
+
+  function createCopyButton(data: unknown): HTMLButtonElement {
     const btn = document.createElement("button");
-    btn.className = className;
-    btn.textContent = "Copy";
+    btn.className = "copy-icon-btn";
     btn.type = "button";
+    btn.title = "Copy JSON";
+    btn.appendChild(makeCopyIcon());
     btn.addEventListener("click", async (e) => {
       e.stopPropagation();
       try {
         await navigator.clipboard.writeText(
           typeof data === "string" ? data : JSON.stringify(data, null, 2)
         );
-        btn.textContent = "Copied!";
+        btn.textContent = "";
+        btn.appendChild(makeCheckIcon());
         btn.classList.add("copied");
         setTimeout(() => {
-          btn.textContent = "Copy";
+          btn.textContent = "";
+          btn.appendChild(makeCopyIcon());
           btn.classList.remove("copied");
         }, 1500);
       } catch {
-        btn.textContent = "Failed";
-        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+        // silent fail
       }
     });
     return btn;
@@ -473,7 +490,7 @@
     querySpan.textContent = data.secid_query;
     header.appendChild(querySpan);
 
-    header.appendChild(createCopyButton(data, "response-copy-btn"));
+    header.appendChild(createCopyButton(data));
     container.appendChild(header);
 
     // Message if present
@@ -499,13 +516,6 @@
         const item = document.createElement("div");
         item.className = "result-item";
 
-        // Copy button for this result
-        const copyData: Record<string, unknown> = { secid: r.secid };
-        if (r.weight != null) copyData.weight = r.weight;
-        if (r.url) copyData.url = r.url;
-        if (r.data) copyData.data = r.data;
-        item.appendChild(createCopyButton(copyData));
-
         // SecID line — clickable for drill-down when browsing registry results
         const secidLine = document.createElement("div");
         const isRegistryBrowse = !r.url && r.data;
@@ -527,6 +537,12 @@
           weightSpan.style.color = "var(--fg-muted)";
           secidLine.appendChild(weightSpan);
         }
+        // Copy icon at end of secid line
+        const copyData: Record<string, unknown> = { secid: r.secid };
+        if (r.weight != null) copyData.weight = r.weight;
+        if (r.url) copyData.url = r.url;
+        if (r.data) copyData.data = r.data;
+        secidLine.appendChild(createCopyButton(copyData));
         item.appendChild(secidLine);
 
         // URL as clickable link
@@ -593,8 +609,7 @@
     const types = Object.keys(TYPE_DESCRIPTIONS);
     copyRow.appendChild(
       createCopyButton(
-        types.map((t) => ({ type: t, secid: `secid:${t}` })),
-        "response-copy-btn"
+        types.map((t) => ({ type: t, secid: `secid:${t}` }))
       )
     );
     output.appendChild(copyRow);
@@ -643,7 +658,7 @@
       // Copy JSON for this level
       const copyRow = document.createElement("div");
       copyRow.style.marginBottom = "0.75rem";
-      copyRow.appendChild(createCopyButton(data, "response-copy-btn"));
+      copyRow.appendChild(createCopyButton(data));
       output.appendChild(copyRow);
 
       if (data.results && data.results.length > 0) {
