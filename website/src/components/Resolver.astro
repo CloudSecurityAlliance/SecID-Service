@@ -1,5 +1,6 @@
 ---
 // Interactive SecID resolver — calls /api/v1/resolve and displays results
+// Features: copy buttons, drill-down links, status badges, registry explorer
 ---
 
 <div class="resolver">
@@ -21,6 +22,9 @@
       <button type="button" data-example="secid:ttp/mitre.org/attack#T1059.003">ATT&CK</button>
       <button type="button" data-example="secid:advisory/CVE-2024-1234">Cross-source</button>
       <button type="button" data-example="secid:weakness">Browse weaknesses</button>
+    </div>
+    <div class="resolver-explore-row">
+      <button type="button" id="explore-btn">Explore Registry</button>
     </div>
   </form>
   <div id="resolver-output" class="resolver-output" hidden></div>
@@ -90,6 +94,23 @@
     background: var(--accent);
     color: #fff;
   }
+  .resolver-explore-row {
+    margin-top: 0.75rem;
+  }
+  .resolver-explore-row button {
+    background: none;
+    border: 1px solid var(--accent);
+    border-radius: 4px;
+    padding: 0.4rem 1rem;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--accent);
+    cursor: pointer;
+  }
+  .resolver-explore-row button:hover {
+    background: var(--accent);
+    color: #fff;
+  }
   .resolver-output {
     margin-top: 1rem;
     padding: 1rem;
@@ -101,39 +122,283 @@
     line-height: 1.5;
     overflow-x: auto;
   }
+
+  /* Status badges */
+  .status-badge {
+    display: inline-block;
+    padding: 0.1rem 0.5rem;
+    border-radius: 3px;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .status-badge[data-status="found"] {
+    background: var(--green);
+    color: #fff;
+  }
+  .status-badge[data-status="corrected"] {
+    background: var(--blue);
+    color: #fff;
+  }
+  .status-badge[data-status="related"] {
+    background: var(--yellow);
+    color: #000;
+  }
+  .status-badge[data-status="not_found"],
+  .status-badge[data-status="error"] {
+    background: var(--red);
+    color: #fff;
+  }
+
+  /* Result items with copy buttons */
+  .result-item {
+    position: relative;
+    margin-top: 0.5rem;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  .result-copy-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15rem 0.4rem;
+    font-size: 0.7rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+  }
+  .result-copy-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .result-copy-btn.copied {
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  /* Drill-down links */
+  .result-secid-link {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+    border-bottom: 1px dashed var(--accent);
+  }
+  .result-secid-link:hover {
+    border-bottom-style: solid;
+  }
+
+  /* Response-level copy button */
+  .response-copy-btn {
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 3px;
+    padding: 0.15rem 0.5rem;
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    cursor: pointer;
+    font-family: var(--font-mono);
+    margin-left: 0.75rem;
+  }
+  .response-copy-btn:hover {
+    color: var(--accent);
+    border-color: var(--accent);
+  }
+  .response-copy-btn.copied {
+    color: var(--green);
+    border-color: var(--green);
+  }
+
+  /* Explorer styles */
+  .explorer-breadcrumbs {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    margin-bottom: 1rem;
+    font-size: 0.85rem;
+    flex-wrap: wrap;
+  }
+  .explorer-breadcrumbs span {
+    color: var(--fg-muted);
+  }
+  .explorer-breadcrumbs a {
+    color: var(--accent);
+    cursor: pointer;
+    text-decoration: none;
+  }
+  .explorer-breadcrumbs a:hover {
+    text-decoration: underline;
+  }
+  .explorer-type-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr));
+    gap: 0.75rem;
+  }
+  .explorer-type-card {
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: var(--surface);
+    cursor: pointer;
+    transition: border-color 0.15s;
+  }
+  .explorer-type-card:hover {
+    border-color: var(--accent);
+  }
+  .explorer-type-card h4 {
+    margin: 0 0 0.25rem;
+    font-size: 0.95rem;
+    color: var(--accent);
+  }
+  .explorer-type-card p {
+    margin: 0;
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    line-height: 1.4;
+  }
+  .explorer-item {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    margin-bottom: 0.4rem;
+    cursor: pointer;
+    font-size: 0.85rem;
+    transition: border-color 0.15s;
+  }
+  .explorer-item:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .explorer-detail-section {
+    margin-top: 0.75rem;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--surface);
+  }
+  .explorer-detail-section h4 {
+    margin: 0 0 0.4rem;
+    font-size: 0.85rem;
+    color: var(--fg);
+  }
+  .explorer-detail-section p,
+  .explorer-detail-section li {
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    font-family: var(--font-sans, system-ui, sans-serif);
+    line-height: 1.4;
+  }
+  .explorer-detail-section ul {
+    margin: 0;
+    padding-left: 1.2rem;
+  }
 </style>
 
 <script>
   const form = document.getElementById("resolver-form") as HTMLFormElement;
   const input = document.getElementById("resolver-input") as HTMLInputElement;
   const output = document.getElementById("resolver-output") as HTMLDivElement;
+  const exploreBtn = document.getElementById("explore-btn") as HTMLButtonElement;
 
-  // Example buttons fill the input and submit
+  // --- Explorer state ---
+  let explorerMode = false;
+  let explorerPath: { label: string; secid: string | null }[] = [];
+
+  const TYPE_DESCRIPTIONS: Record<string, string> = {
+    advisory: "Vulnerability advisories, incident reports, and safety publications",
+    weakness: "Weakness taxonomies and abstract flaw patterns",
+    ttp: "Attack patterns, adversary techniques, and procedures",
+    control: "Security controls, frameworks, and benchmarks",
+    regulation: "Laws, directives, and legal requirements",
+    entity: "Vendors, products, and services",
+    reference: "Documents, research papers, and identifier systems",
+  };
+
+  // --- Example buttons fill the input and submit ---
   form.querySelectorAll("[data-example]").forEach((btn) => {
     btn.addEventListener("click", () => {
       input.value = (btn as HTMLElement).dataset.example!;
+      exitExplorerMode();
       form.requestSubmit();
     });
   });
 
+  // --- Form submit: resolve mode ---
   form.addEventListener("submit", async (e) => {
     e.preventDefault();
     const query = input.value.trim();
     if (!query) return;
 
+    exitExplorerMode();
     output.hidden = false;
-    output.textContent = "Resolving...";
+    output.textContent = "Resolving\u2026";
 
     try {
-      const url = `/api/v1/resolve?secid=${encodeURIComponent(query)}`;
-      const res = await fetch(url);
-      const data = await res.json();
+      const data = await fetchResolve(query);
       renderResponse(output, data);
     } catch (err) {
       output.textContent = `Error: ${(err as Error).message}`;
     }
   });
 
+  // --- Explore button ---
+  exploreBtn.addEventListener("click", () => {
+    explorerMode = true;
+    explorerPath = [{ label: "Registry", secid: null }];
+    output.hidden = false;
+    renderExplorerRoot();
+  });
+
+  // --- API helper ---
+  async function fetchResolve(secid: string): Promise<ResolveResponse> {
+    const url = `/api/v1/resolve?secid=${encodeURIComponent(secid)}`;
+    const res = await fetch(url);
+    return res.json();
+  }
+
+  // --- Clipboard helper ---
+  function createCopyButton(data: unknown, className = "result-copy-btn"): HTMLButtonElement {
+    const btn = document.createElement("button");
+    btn.className = className;
+    btn.textContent = "Copy";
+    btn.type = "button";
+    btn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      try {
+        await navigator.clipboard.writeText(
+          typeof data === "string" ? data : JSON.stringify(data, null, 2)
+        );
+        btn.textContent = "Copied!";
+        btn.classList.add("copied");
+        setTimeout(() => {
+          btn.textContent = "Copy";
+          btn.classList.remove("copied");
+        }, 1500);
+      } catch {
+        btn.textContent = "Failed";
+        setTimeout(() => { btn.textContent = "Copy"; }, 1500);
+      }
+    });
+    return btn;
+  }
+
+  // --- Drill-down: set input and resolve ---
+  function resolveAndRender(secid: string): void {
+    input.value = secid;
+    exitExplorerMode();
+    form.requestSubmit();
+  }
+
+  function exitExplorerMode(): void {
+    explorerMode = false;
+    explorerPath = [];
+  }
+
+  // --- Interfaces ---
   interface ResolveResult {
     secid: string;
     weight?: number;
@@ -148,47 +413,82 @@
     message?: string;
   }
 
+  // --- Render resolver response ---
   function renderResponse(container: HTMLElement, data: ResolveResponse): void {
-    // Clear previous content
     container.textContent = "";
 
-    // Status line
-    const statusLine = document.createElement("div");
-    const statusSpan = document.createElement("strong");
-    statusSpan.textContent = `Status: ${data.status}`;
-    statusSpan.dataset.status = data.status;
-    statusLine.appendChild(statusSpan);
-    container.appendChild(statusLine);
+    // Header row: status badge + query + copy-all button
+    const header = document.createElement("div");
+    header.style.display = "flex";
+    header.style.alignItems = "center";
+    header.style.flexWrap = "wrap";
+    header.style.gap = "0.5rem";
 
-    // Query echo
-    const queryLine = document.createElement("div");
-    queryLine.textContent = `Query: ${data.secid_query}`;
-    container.appendChild(queryLine);
+    const badge = document.createElement("span");
+    badge.className = "status-badge";
+    badge.dataset.status = data.status;
+    badge.textContent = data.status;
+    header.appendChild(badge);
+
+    const querySpan = document.createElement("span");
+    querySpan.textContent = data.secid_query;
+    header.appendChild(querySpan);
+
+    header.appendChild(createCopyButton(data, "response-copy-btn"));
+    container.appendChild(header);
 
     // Message if present
     if (data.message) {
       const msgLine = document.createElement("div");
-      msgLine.textContent = `Message: ${data.message}`;
+      msgLine.textContent = data.message;
+      msgLine.style.marginTop = "0.4rem";
+      msgLine.style.color = "var(--fg-muted)";
+      msgLine.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+      msgLine.style.fontSize = "0.85rem";
       container.appendChild(msgLine);
     }
 
     if (data.results && data.results.length > 0) {
       const countLine = document.createElement("div");
-      countLine.textContent = `\nResults (${data.results.length}):`;
+      countLine.textContent = `${data.results.length} result${data.results.length !== 1 ? "s" : ""}`;
       countLine.style.marginTop = "0.5rem";
+      countLine.style.color = "var(--fg-muted)";
+      countLine.style.fontSize = "0.8rem";
       container.appendChild(countLine);
 
       for (const r of data.results) {
-        const resultDiv = document.createElement("div");
-        resultDiv.style.marginTop = "0.5rem";
-        resultDiv.style.paddingLeft = "1rem";
+        const item = document.createElement("div");
+        item.className = "result-item";
 
-        // SecID + weight
+        // Copy button for this result
+        const copyData: Record<string, unknown> = { secid: r.secid };
+        if (r.weight != null) copyData.weight = r.weight;
+        if (r.url) copyData.url = r.url;
+        if (r.data) copyData.data = r.data;
+        item.appendChild(createCopyButton(copyData));
+
+        // SecID line — clickable for drill-down when browsing registry results
         const secidLine = document.createElement("div");
-        secidLine.textContent = r.weight != null
-          ? `${r.secid}  (weight: ${r.weight})`
-          : r.secid;
-        resultDiv.appendChild(secidLine);
+        const isRegistryBrowse = !r.url && r.data;
+        if (isRegistryBrowse) {
+          const link = document.createElement("a");
+          link.className = "result-secid-link";
+          link.textContent = r.secid;
+          link.addEventListener("click", (e) => {
+            e.preventDefault();
+            resolveAndRender(r.secid);
+          });
+          secidLine.appendChild(link);
+        } else {
+          secidLine.textContent = r.secid;
+        }
+        if (r.weight != null) {
+          const weightSpan = document.createElement("span");
+          weightSpan.textContent = `  (weight: ${r.weight})`;
+          weightSpan.style.color = "var(--fg-muted)";
+          secidLine.appendChild(weightSpan);
+        }
+        item.appendChild(secidLine);
 
         // URL as clickable link
         if (r.url) {
@@ -199,8 +499,10 @@
           link.target = "_blank";
           link.rel = "noopener";
           link.style.color = "var(--accent)";
+          link.style.fontSize = "0.8rem";
+          link.style.wordBreak = "break-all";
           urlLine.appendChild(link);
-          resultDiv.appendChild(urlLine);
+          item.appendChild(urlLine);
         }
 
         // Registry data fields
@@ -209,22 +511,26 @@
           if (d.official_name) {
             const line = document.createElement("div");
             line.textContent = `Name: ${d.official_name}`;
-            resultDiv.appendChild(line);
+            line.style.fontSize = "0.8rem";
+            item.appendChild(line);
           }
           if (d.common_name) {
             const line = document.createElement("div");
             line.textContent = `Common: ${d.common_name}`;
-            resultDiv.appendChild(line);
+            line.style.fontSize = "0.8rem";
+            item.appendChild(line);
           }
           if (d.description) {
             const line = document.createElement("div");
             line.textContent = `${d.description}`;
             line.style.color = "var(--fg-muted)";
-            resultDiv.appendChild(line);
+            line.style.fontSize = "0.8rem";
+            line.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+            item.appendChild(line);
           }
         }
 
-        container.appendChild(resultDiv);
+        container.appendChild(item);
       }
     } else {
       const noResults = document.createElement("div");
@@ -232,5 +538,225 @@
       noResults.style.marginTop = "0.5rem";
       container.appendChild(noResults);
     }
+  }
+
+  // --- Explorer: root view (7 type cards) ---
+  function renderExplorerRoot(): void {
+    output.textContent = "";
+
+    // Breadcrumbs
+    output.appendChild(renderBreadcrumbs());
+
+    // Copy full JSON button at top level
+    const copyRow = document.createElement("div");
+    copyRow.style.marginBottom = "0.75rem";
+    const types = Object.keys(TYPE_DESCRIPTIONS);
+    copyRow.appendChild(
+      createCopyButton(
+        types.map((t) => ({ type: t, secid: `secid:${t}` })),
+        "response-copy-btn"
+      )
+    );
+    output.appendChild(copyRow);
+
+    // Type grid
+    const grid = document.createElement("div");
+    grid.className = "explorer-type-grid";
+
+    for (const [type, desc] of Object.entries(TYPE_DESCRIPTIONS)) {
+      const card = document.createElement("div");
+      card.className = "explorer-type-card";
+      card.addEventListener("click", () => navigateExplorer(`secid:${type}`, type));
+
+      const h4 = document.createElement("h4");
+      h4.textContent = type;
+      card.appendChild(h4);
+
+      const p = document.createElement("p");
+      p.textContent = desc;
+      card.appendChild(p);
+
+      grid.appendChild(card);
+    }
+
+    output.appendChild(grid);
+  }
+
+  // --- Explorer: navigate to a secid level ---
+  async function navigateExplorer(secid: string, label: string): Promise<void> {
+    explorerPath.push({ label, secid });
+    output.textContent = "";
+    output.hidden = false;
+
+    const loadingDiv = document.createElement("div");
+    loadingDiv.textContent = "Loading\u2026";
+    output.appendChild(loadingDiv);
+
+    try {
+      const data = await fetchResolve(secid);
+      output.textContent = "";
+
+      // Breadcrumbs
+      output.appendChild(renderBreadcrumbs());
+
+      // Copy JSON for this level
+      const copyRow = document.createElement("div");
+      copyRow.style.marginBottom = "0.75rem";
+      copyRow.appendChild(createCopyButton(data, "response-copy-btn"));
+      output.appendChild(copyRow);
+
+      if (data.results && data.results.length > 0) {
+        for (const r of data.results) {
+          // Determine if this result can be drilled deeper
+          const hasChildren = !r.url && r.data;
+
+          if (hasChildren) {
+            // Clickable item for further navigation
+            const item = document.createElement("div");
+            item.className = "explorer-item";
+
+            const nameSpan = document.createElement("span");
+            nameSpan.style.fontWeight = "600";
+            // Extract the meaningful part for the label
+            const parts = r.secid.replace(/^secid:/, "").split("/");
+            const shortLabel = parts[parts.length - 1] || r.secid;
+            nameSpan.textContent = shortLabel;
+            item.appendChild(nameSpan);
+
+            if (r.data?.official_name || r.data?.common_name) {
+              const nameInfo = document.createElement("span");
+              nameInfo.style.color = "var(--fg-muted)";
+              nameInfo.style.marginLeft = "0.5rem";
+              nameInfo.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+              nameInfo.textContent = `\u2014 ${r.data.official_name || r.data.common_name}`;
+              item.appendChild(nameInfo);
+            }
+
+            if (r.data?.description) {
+              const desc = document.createElement("div");
+              desc.textContent = r.data.description as string;
+              desc.style.fontSize = "0.75rem";
+              desc.style.color = "var(--fg-muted)";
+              desc.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+              desc.style.marginTop = "0.2rem";
+              item.appendChild(desc);
+            }
+
+            item.addEventListener("click", () => navigateExplorer(r.secid, shortLabel));
+            output.appendChild(item);
+          } else {
+            // Leaf node: show as detail card
+            const detail = document.createElement("div");
+            detail.className = "explorer-detail-section";
+            detail.style.position = "relative";
+
+            // Copy button
+            const detailCopy: Record<string, unknown> = { secid: r.secid };
+            if (r.weight != null) detailCopy.weight = r.weight;
+            if (r.url) detailCopy.url = r.url;
+            if (r.data) detailCopy.data = r.data;
+            detail.appendChild(createCopyButton(detailCopy));
+
+            const h4 = document.createElement("h4");
+            h4.textContent = r.secid;
+            detail.appendChild(h4);
+
+            if (r.url) {
+              const urlDiv = document.createElement("div");
+              const link = document.createElement("a");
+              link.href = r.url;
+              link.textContent = r.url;
+              link.target = "_blank";
+              link.rel = "noopener";
+              link.style.color = "var(--accent)";
+              link.style.fontSize = "0.8rem";
+              link.style.wordBreak = "break-all";
+              urlDiv.appendChild(link);
+              detail.appendChild(urlDiv);
+            }
+
+            if (r.data) {
+              const d = r.data;
+              if (d.official_name || d.common_name) {
+                const p = document.createElement("p");
+                p.textContent = `${d.official_name || d.common_name}`;
+                detail.appendChild(p);
+              }
+              if (d.description) {
+                const p = document.createElement("p");
+                p.textContent = d.description as string;
+                detail.appendChild(p);
+              }
+              if (d.examples && Array.isArray(d.examples)) {
+                const exH4 = document.createElement("h4");
+                exH4.textContent = "Examples";
+                exH4.style.marginTop = "0.5rem";
+                detail.appendChild(exH4);
+                const ul = document.createElement("ul");
+                for (const ex of d.examples) {
+                  const li = document.createElement("li");
+                  li.textContent = typeof ex === "string" ? ex : JSON.stringify(ex);
+                  ul.appendChild(li);
+                }
+                detail.appendChild(ul);
+              }
+            }
+
+            output.appendChild(detail);
+          }
+        }
+      } else {
+        const noResults = document.createElement("div");
+        noResults.textContent = data.message || "No results at this level.";
+        noResults.style.color = "var(--fg-muted)";
+        output.appendChild(noResults);
+      }
+    } catch (err) {
+      output.textContent = `Error: ${(err as Error).message}`;
+    }
+  }
+
+  // --- Breadcrumbs ---
+  function renderBreadcrumbs(): HTMLElement {
+    const nav = document.createElement("div");
+    nav.className = "explorer-breadcrumbs";
+
+    for (let i = 0; i < explorerPath.length; i++) {
+      const crumb = explorerPath[i];
+      const isLast = i === explorerPath.length - 1;
+
+      if (i > 0) {
+        const sep = document.createElement("span");
+        sep.textContent = " / ";
+        nav.appendChild(sep);
+      }
+
+      if (isLast) {
+        const span = document.createElement("span");
+        span.textContent = crumb.label;
+        span.style.color = "var(--fg)";
+        span.style.fontWeight = "600";
+        nav.appendChild(span);
+      } else {
+        const link = document.createElement("a");
+        link.textContent = crumb.label;
+        const targetIndex = i;
+        link.addEventListener("click", (e) => {
+          e.preventDefault();
+          // Trim path back to this level
+          explorerPath = explorerPath.slice(0, targetIndex + 1);
+          if (targetIndex === 0) {
+            renderExplorerRoot();
+          } else {
+            // Re-navigate to this crumb's secid
+            explorerPath.pop(); // navigateExplorer will re-push it
+            navigateExplorer(crumb.secid!, crumb.label);
+          }
+        });
+        nav.appendChild(link);
+      }
+    }
+
+    return nav;
   }
 </script>
