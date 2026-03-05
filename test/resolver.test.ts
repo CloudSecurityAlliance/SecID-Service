@@ -261,6 +261,52 @@ describe("error cases", () => {
   });
 });
 
+// ── Manual Tests: Content Type ──
+
+describe("content_type on results", () => {
+  it("includes content_type from registry on resolution results", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/cve#CVE-2024-1234");
+    expect(r.status).toBe("found");
+    const resolutions = r.results.filter((r): r is ResolutionResult => "url" in r);
+    // cve.org result should have text/html
+    const cveOrg = resolutions.find((r) => r.url.includes("cve.org"));
+    expect(cveOrg?.content_type).toBe("text/html");
+    // API result should have application/json
+    const api = resolutions.find((r) => r.url.includes("cveawg.mitre.org"));
+    expect(api?.content_type).toBe("application/json");
+    // Raw GitHub result should have application/json
+    const raw = resolutions.find((r) => r.url.includes("raw.githubusercontent.com"));
+    expect(raw?.content_type).toBe("application/json");
+  });
+
+  it("filters results by content_type qualifier", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/cve#CVE-2024-1234?content_type=application/json");
+    expect(r.status).toBe("found");
+    const resolutions = r.results.filter((r): r is ResolutionResult => "url" in r);
+    // Should only have JSON results (API + raw GitHub)
+    for (const res of resolutions) {
+      expect(res.content_type).toBe("application/json");
+    }
+    expect(resolutions.length).toBe(2);
+  });
+
+  it("returns not_found when content_type has no matches", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/cve#CVE-2024-1234?content_type=application/pdf");
+    expect(r.status).toBe("not_found");
+    expect(r.message).toContain("application/pdf");
+    expect(r.message).toContain("Available");
+  });
+
+  it("source-level qualifier filters same as item-level", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/cve?content_type=application/json#CVE-2024-1234");
+    expect(r.status).toBe("found");
+    const resolutions = r.results.filter((r): r is ResolutionResult => "url" in r);
+    for (const res of resolutions) {
+      expect(res.content_type).toBe("application/json");
+    }
+  });
+});
+
 // ── Helper ──
 
 function extractTestNameSlug(node: MatchNode): string {

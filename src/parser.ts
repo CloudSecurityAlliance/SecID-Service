@@ -17,6 +17,7 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
     version: null,
     subpath: null,
     itemVersion: null,
+    qualifiers: null,
   };
 
   if (!input || typeof input !== "string") {
@@ -39,9 +40,19 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
   // 2. Split at first # → head and subpath
   const hashIdx = remaining.indexOf("#");
   let head: string;
+  let itemQualifiers: Record<string, string> | null = null;
   if (hashIdx !== -1) {
     head = remaining.slice(0, hashIdx);
-    result.subpath = remaining.slice(hashIdx + 1) || null;
+    let rawSubpath = remaining.slice(hashIdx + 1) || null;
+    // Strip ?qualifiers from subpath before pattern matching
+    if (rawSubpath) {
+      const qIdx = rawSubpath.indexOf("?");
+      if (qIdx !== -1) {
+        itemQualifiers = parseQualifiers(rawSubpath.slice(qIdx + 1));
+        rawSubpath = rawSubpath.slice(0, qIdx) || null;
+      }
+    }
+    result.subpath = rawSubpath;
   } else {
     head = remaining;
   }
@@ -70,6 +81,14 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
   remaining = head.slice(firstSlash + 1);
   if (!remaining) {
     return result;
+  }
+
+  // Strip source-level ?qualifiers before namespace resolution
+  let sourceQualifiers: Record<string, string> | null = null;
+  const headQIdx = remaining.indexOf("?");
+  if (headQIdx !== -1) {
+    sourceQualifiers = parseQualifiers(remaining.slice(headQIdx + 1));
+    remaining = remaining.slice(0, headQIdx);
   }
 
   // 4. Namespace resolution (shortest-to-longest matching)
@@ -115,6 +134,26 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
     }
   }
 
+  // Merge qualifiers (item-level takes precedence over source-level)
+  if (sourceQualifiers || itemQualifiers) {
+    result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
+  }
+
+  return result;
+}
+
+/**
+ * Parse ?key=value&key2=value2 into a Record. Keys lowercased, values preserve case.
+ */
+function parseQualifiers(raw: string): Record<string, string> {
+  const result: Record<string, string> = {};
+  for (const pair of raw.split("&")) {
+    const eqIdx = pair.indexOf("=");
+    if (eqIdx === -1) continue;
+    const key = pair.slice(0, eqIdx).toLowerCase();
+    const value = pair.slice(eqIdx + 1);
+    result[key] = value;
+  }
   return result;
 }
 

@@ -134,4 +134,41 @@ describe("parseSecID", () => {
       expect(r.raw).toBe(input);
     });
   });
+
+  describe("qualifier parsing", () => {
+    it("parses item-level qualifier from subpath", () => {
+      const r = parseSecID("secid:advisory/mitre.org/cve#CVE-2024-1234?content_type=application/json", REGISTRY);
+      expect(r.subpath).toBe("CVE-2024-1234");
+      expect(r.qualifiers).toEqual({ content_type: "application/json" });
+    });
+
+    it("parses source-level qualifier from head", () => {
+      const r = parseSecID("secid:advisory/mitre.org/cve?content_type=application/json#CVE-2024-1234", REGISTRY);
+      expect(r.subpath).toBe("CVE-2024-1234");
+      expect(r.name).toBe("cve");
+      expect(r.qualifiers).toEqual({ content_type: "application/json" });
+    });
+
+    it("item-level qualifier takes precedence over source-level", () => {
+      const r = parseSecID("secid:advisory/mitre.org/cve?content_type=text/html#CVE-2024-1234?content_type=application/json", REGISTRY);
+      expect(r.qualifiers).toEqual({ content_type: "application/json" });
+    });
+
+    it("subpath is clean after stripping qualifier", () => {
+      const r = parseSecID("secid:advisory/mitre.org/cve#CVE-2024-1234?content_type=application/json", REGISTRY);
+      expect(r.subpath).toBe("CVE-2024-1234");
+    });
+
+    it("returns null qualifiers when none present", () => {
+      const r = parseSecID("secid:advisory/mitre.org/cve#CVE-2024-1234", REGISTRY);
+      expect(r.qualifiers).toBeNull();
+    });
+
+    it("parses qualifier with version present", () => {
+      const r = parseSecID("secid:weakness/owasp.org/top10@2021?content_type=text/html#A01", REGISTRY);
+      expect(r.name).toBe("top10");
+      expect(r.version).toBe("2021");
+      expect(r.qualifiers).toEqual({ content_type: "text/html" });
+    });
+  });
 });

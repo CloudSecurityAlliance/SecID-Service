@@ -221,7 +221,17 @@ function resolveSubpath(
   );
 
   if (results.length > 0) {
-    return response(query, "found", results);
+    const filtered = applyContentTypeFilter(results, parsed.qualifiers);
+    if (filtered === null) {
+      const available = [...new Set(
+        results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
+          .map((r) => r.content_type!)
+      )];
+      return response(query, "not_found", [],
+        `No results with content_type "${parsed.qualifiers!.content_type}". Available: ${available.join(", ") || "none declared"}. Remove ?content_type to see all.`
+      );
+    }
+    return response(query, "found", filtered);
   }
 
   // Subpath didn't match any child pattern
@@ -312,7 +322,17 @@ function resolveVersioned(
   );
 
   if (results.length > 0) {
-    return response(query, "found", results);
+    const filtered = applyContentTypeFilter(results, parsed.qualifiers);
+    if (filtered === null) {
+      const available = [...new Set(
+        results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
+          .map((r) => r.content_type!)
+      )];
+      return response(query, "not_found", [],
+        `No results with content_type "${parsed.qualifiers!.content_type}". Available: ${available.join(", ") || "none declared"}. Remove ?content_type to see all.`
+      );
+    }
+    return response(query, "found", filtered);
   }
 
   return response(
@@ -349,13 +369,17 @@ function matchChildrenAndResolve(
     const url = resolveChildUrl(child, subpath, parentNode);
 
     if (url) {
-      results.push({ secid, weight: child.weight, url } as ResolutionResult);
+      const res: ResolutionResult = { secid, weight: child.weight, url };
+      if (child.data.content_type) res.content_type = child.data.content_type;
+      results.push(res);
     } else if (child.data.lookup_table) {
       // Lookup table: try direct key match
       const entry = child.data.lookup_table[subpath];
       if (entry) {
         const lookupUrl = typeof entry === "string" ? entry : entry.url;
-        results.push({ secid, weight: child.weight, url: lookupUrl } as ResolutionResult);
+        const res: ResolutionResult = { secid, weight: child.weight, url: lookupUrl };
+        if (child.data.content_type) res.content_type = child.data.content_type;
+        results.push(res);
       } else {
         // Return the lookup_table as registry data
         results.push({
@@ -528,7 +552,9 @@ function namespaceScopedSearch(
       const url = resolveChildUrl(child, identifier, node);
 
       if (url) {
-        results.push({ secid, weight: child.weight, url } as ResolutionResult);
+        const res: ResolutionResult = { secid, weight: child.weight, url };
+        if (child.data.content_type) res.content_type = child.data.content_type;
+        results.push(res);
       } else {
         results.push({
           secid,
@@ -573,7 +599,9 @@ function typeScopedSearch(
         const url = resolveChildUrl(child, identifier, node);
 
         if (url) {
-          results.push({ secid, weight: child.weight, url } as ResolutionResult);
+          const res: ResolutionResult = { secid, weight: child.weight, url };
+          if (child.data.content_type) res.content_type = child.data.content_type;
+          results.push(res);
         } else {
           results.push({
             secid,
@@ -645,6 +673,22 @@ function extractNameSlug(node: MatchNode): string {
   }
   // Fallback: use description
   return node.description.toLowerCase().replace(/\s+/g, "-");
+}
+
+function applyContentTypeFilter(
+  results: ResultEntry[],
+  qualifiers: Record<string, string> | null
+): ResultEntry[] | null {
+  if (!qualifiers?.content_type) return results;
+  const target = qualifiers.content_type;
+  const filtered = results.filter((r) => {
+    if (!("url" in r)) return true; // Keep RegistryResults (metadata)
+    return (r as ResolutionResult).content_type === target;
+  });
+  // If all ResolutionResults were filtered out, signal "not found"
+  const hasResolution = filtered.some((r) => "url" in r);
+  if (!hasResolution && results.some((r) => "url" in r)) return null;
+  return filtered;
 }
 
 function response(
