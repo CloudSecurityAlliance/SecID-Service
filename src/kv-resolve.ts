@@ -5,6 +5,7 @@ import {
   SECID_TYPES,
   isResolutionResult,
   type ChildIndexEntry,
+  type ParsedSecID,
   type Registry,
   type RegistryNamespace,
   type ResolveResponse,
@@ -213,12 +214,23 @@ async function searchBareIdentifier(
 
   if (typeMatches.length === 0) return null;
 
-  // Resolve across all matching types in parallel
+  // Resolve across all matching types in parallel.
+  // Construct ParsedSecID directly instead of going through parseSecID,
+  // because the parser's dot-means-domain heuristic misidentifies things
+  // like "T1059.003" as domain namespaces.
   const resolveResults = await Promise.all(
-    typeMatches.map(async ({ type, namespaces, index }) => {
-      const syntheticInput = `secid:${type}/${trimmed}`;
-      const minimalRegistry = buildMinimalRegistry(type, index);
-      const parsed = parseSecID(syntheticInput, minimalRegistry);
+    typeMatches.map(async ({ type, namespaces }) => {
+      const parsed: ParsedSecID = {
+        raw: input,
+        prefix: false,
+        type,
+        namespace: null,
+        name: trimmed,
+        version: null,
+        subpath: null,
+        itemVersion: null,
+        qualifiers: null,
+      };
       const nsMap = await ctx.getNamespaces(type, namespaces);
       const registry = buildPartialRegistry(type, nsMap);
       return resolve(parsed, registry);
