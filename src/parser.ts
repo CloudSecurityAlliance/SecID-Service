@@ -1,6 +1,23 @@
 import { SECID_TYPES, type ParsedSecID, type Registry, type SecIDType } from "./types";
 
 /**
+ * Extract just the type from a SecID string without registry access.
+ * Used by KV handlers to determine which type-level key to fetch
+ * before any KV reads.
+ */
+export function extractSecIDType(input: string): SecIDType | null {
+  let remaining = input?.trim();
+  if (!remaining) return null;
+  if (/^secid:/i.test(remaining)) remaining = remaining.replace(/^secid:/i, "");
+  if (!remaining) return null;
+  const hashIdx = remaining.indexOf("#");
+  const head = hashIdx !== -1 ? remaining.slice(0, hashIdx) : remaining;
+  const firstSlash = head.indexOf("/");
+  const candidate = (firstSlash === -1 ? head : head.slice(0, firstSlash)).toLowerCase();
+  return SECID_TYPES.includes(candidate as SecIDType) ? (candidate as SecIDType) : null;
+}
+
+/**
  * Parse a SecID string into its components.
  *
  * Namespace resolution requires registry access — the parser tries

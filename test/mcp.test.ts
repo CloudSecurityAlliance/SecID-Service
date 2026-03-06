@@ -1,5 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { SELF } from "cloudflare:test";
+import { SELF, env } from "cloudflare:test";
+import { seedRegistryKV } from "./helpers/seed-kv";
+
+beforeAll(async () => {
+  await seedRegistryKV(env.secid_REGISTRY);
+});
 
 // ── Helpers ──
 

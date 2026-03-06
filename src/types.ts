@@ -132,10 +132,41 @@ export interface RegistryNamespace {
 // The compiled registry: type → namespace → data
 export type Registry = Record<string, Record<string, RegistryNamespace>>;
 
+// ── KV Registry Types ──
+// Used by kv-registry.ts and upload-registry-kv.ts
+
+export interface TypeIndex {
+  type: string;
+  description: string;
+  namespaces: Array<{
+    namespace: string;
+    official_name: string;
+    common_name: string | null;
+    source_count: number;
+  }>;
+  child_index: ChildIndexEntry[];
+}
+
+export interface ChildIndexEntry {
+  namespace: string;
+  name_slug: string;
+  patterns: string[];
+  description: string;
+  weight: number;
+  has_url: boolean;
+}
+
+export interface RegistryMeta {
+  version: string;
+  total_namespaces: number;
+  types: Record<string, number>;
+}
+
 // ── App Environment ──
 // Cloudflare Worker bindings available via Hono context
 export interface AppBindings {
   secid_OBSERVABILITY?: KVNamespace;
+  secid_REGISTRY?: KVNamespace;
 }
 
 export type AppEnv = {

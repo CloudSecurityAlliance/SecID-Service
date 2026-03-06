@@ -12,5 +12,10 @@ binding = "secid_OBSERVABILITY"
 id = "c5cbc52b9a724433b3043efdf31857f4"
 preview_id = "3bc7078377cb44bc8fc63e5f9f344392"
 
+[[kv_namespaces]]
+binding = "secid_REGISTRY"
+id = "cfbc271787614516a39fa43d9ca4f95a"
+preview_id = "bda410b73cc34b468c84bf2dc9fba45f"
+
 [assets]
 directory = "./website/dist"

@@ -1,9 +1,8 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { parseSecID } from "./parser";
-import { resolve } from "./resolver";
-import { REGISTRY } from "./registry";
+import { resolveFromKV } from "./kv-resolve";
+import { RegistryContext } from "./kv-registry";
 import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
 import type { Context } from "hono";
@@ -282,7 +281,11 @@ Results contain { secid, data } with registry metadata (official_name, patterns,
 
 Use this to help users construct valid SecID strings or to explore what the registry covers.`;
 
-function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
+function createMcpServer(
+  kv: KVNamespace | undefined,
+  registryKv: KVNamespace,
+  req: Request
+): McpServer {
   const server = new McpServer({
     name: "secid",
     version: "0.2.0",
@@ -295,8 +298,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
     { secid: z.string().describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search") },
     async ({ secid }) => {
       try {
-        const parsed = parseSecID(secid, REGISTRY);
-        const result = resolve(parsed, REGISTRY);
+        const result = await resolveFromKV(registryKv, secid);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -331,8 +333,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
     async ({ type, identifier }) => {
       const secid = `secid:${type}/${identifier}`;
       try {
-        const parsed = parseSecID(secid, REGISTRY);
-        const result = resolve(parsed, REGISTRY);
+        const result = await resolveFromKV(registryKv, secid);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -363,10 +364,10 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
     { secid: z.string().describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'") },
     async ({ secid }) => {
       try {
-        const parsed = parseSecID(secid, REGISTRY);
-        // Strip subpath to get source-level info
-        parsed.subpath = null;
-        const result = resolve(parsed, REGISTRY);
+        // Strip subpath (#...) from input for describe — return source-level info
+        const hashIdx = secid.indexOf("#");
+        const describeInput = hashIdx !== -1 ? secid.slice(0, hashIdx) : secid;
+        const result = await resolveFromKV(registryKv, describeInput);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -397,8 +398,10 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
     { description: "Full listing of all SecID types and their namespace counts. SecID covers 7 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 121 namespaces total." },
     async () => {
       const listing: Record<string, number> = {};
+      const ctx = new RegistryContext(registryKv);
       for (const type of SECID_TYPES) {
-        listing[type] = Object.keys(REGISTRY[type] ?? {}).length;
+        const idx = await ctx.getTypeIndex(type);
+        listing[type] = idx?.namespaces.length ?? 0;
       }
       return {
         contents: [{
@@ -417,11 +420,13 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
       `secid://registry/${type}`,
       { description: `All namespaces registered under the '${type}' type, with official names and source counts. Use the describe tool to get details about any specific namespace.` },
       async () => {
-        const namespaces = Object.entries(REGISTRY[type] ?? {}).map(([ns, data]) => ({
-          namespace: ns,
-          official_name: data.official_name,
-          common_name: data.common_name,
-          source_count: data.match_nodes.length,
+        const ctx = new RegistryContext(registryKv);
+        const idx = await ctx.getTypeIndex(type);
+        const namespaces = (idx?.namespaces ?? []).map((n) => ({
+          namespace: n.namespace,
+          official_name: n.official_name,
+          common_name: n.common_name,
+          source_count: n.source_count,
         }));
         return {
           contents: [{
@@ -466,7 +471,7 @@ function createMcpServer(kv: KVNamespace | undefined, req: Request): McpServer {
 }
 
 export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
-  const server = createMcpServer(c.env.secid_OBSERVABILITY, c.req.raw);
+  const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw);
 
   try {
     const transport = new WebStandardStreamableHTTPServerTransport({

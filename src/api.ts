@@ -1,12 +1,28 @@
 import type { Context } from "hono";
-import { parseSecID } from "./parser";
-import { resolve } from "./resolver";
-import { REGISTRY } from "./registry";
+import { resolveFromKV } from "./kv-resolve";
+import { RegistryContext } from "./kv-registry";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
 
-export function handleRegistryDownload(c: Context<AppEnv>): Response {
-  return c.json(REGISTRY, 200, {
+export async function handleRegistryDownload(
+  c: Context<AppEnv>
+): Promise<Response> {
+  const kv = c.env.secid_REGISTRY;
+  if (!kv) {
+    return c.json(
+      { error: "Registry KV not configured" },
+      503,
+    );
+  }
+  const ctx = new RegistryContext(kv);
+  const full = await ctx.getFullRegistry();
+  if (!full) {
+    return c.json(
+      { error: "Registry data not found in KV" },
+      503,
+    );
+  }
+  return c.json(full, 200, {
     "Content-Disposition": 'attachment; filename="secid-registry.json"',
   });
 }
@@ -37,8 +53,16 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
   }
 
   try {
-    const parsed = parseSecID(decoded, REGISTRY);
-    const result = resolve(parsed, REGISTRY);
+    const kv = c.env.secid_REGISTRY;
+    if (!kv) {
+      return c.json({
+        secid_query: decoded,
+        status: "error",
+        results: [],
+        message: "Registry KV not configured.",
+      });
+    }
+    const result = await resolveFromKV(kv, decoded);
     return c.json(result);
   } catch (err) {
     const entry = buildErrorEntry("api.resolve", decoded, err, c.req.raw);

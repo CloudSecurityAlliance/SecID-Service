@@ -1,5 +1,10 @@
-import { describe, it, expect } from "vitest";
-import { SELF } from "cloudflare:test";
+import { describe, it, expect, beforeAll } from "vitest";
+import { SELF, env } from "cloudflare:test";
+import { seedRegistryKV } from "./helpers/seed-kv";
+
+beforeAll(async () => {
+  await seedRegistryKV(env.secid_REGISTRY);
+});
 
 describe("REST API", () => {
   describe("GET /health", () => {
