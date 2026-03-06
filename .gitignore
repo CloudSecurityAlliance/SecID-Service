@@ -7,3 +7,4 @@ src/registry.ts
 website/node_modules/
 website/dist/
 website/.astro/
+test-results/

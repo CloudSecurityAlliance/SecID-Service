@@ -1,0 +1,41 @@
+name: Upload registry to KV
+
+on:
+  repository_dispatch:
+    types: [registry-updated]
+  workflow_dispatch:
+
+jobs:
+  upload:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout SecID-Service
+        uses: actions/checkout@v4
+
+      - name: Checkout SecID spec repo
+        uses: actions/checkout@v4
+        with:
+          repository: CloudSecurityAlliance/SecID
+          path: secid-spec
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npx vitest run
+
+      - name: Upload registry to KV
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx tsx scripts/upload-registry-kv.ts ./secid-spec
+
+      - name: Deploy Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: npx wrangler deploy
