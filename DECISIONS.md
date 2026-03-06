@@ -210,3 +210,29 @@ Sequential log of decisions for SecID-Service.
 - **Cloudflare global API key** — Grants access to everything on the account; violates least-privilege
 - **Classic GitHub PAT with `repo` scope** — Far too broad; grants access to all repos the user can see
 - **GitHub App immediately** — More setup (create app, install on both repos, generate keys) for a flow that isn't running yet. Fine-grained PAT unblocks the pipeline now; migrate later when it matters
+
+---
+
+## ADR-011: Accept regex runtime risk with registry-layer controls
+
+**Date:** 2026-03-06  
+**Status:** Accepted  
+**Decision method:** Collaborative
+
+**Goal:** Define how SecID-Service handles ReDoS risk from registry-provided regex patterns.
+
+**Context:** Resolver paths compile and execute registry `patterns` against user input. A pathological pattern could trigger catastrophic backtracking and increase CPU time per request.
+
+**Decision:** Keep runtime regex matching, and control risk at the registry authoring/review layer. Require regex safety checks in SecID registry workflow and PR review, with rollback as the operational response if a bad pattern escapes review.
+
+**Rationale:**
+- SecID depends on source-specific identifier patterns; removing regex matching would materially reduce coverage and accuracy.
+- Registry controls are centralized and auditable.
+- Cloudflare Worker runtime limits and existing observability provide containment and detection, but are not primary prevention.
+
+**Controls:**
+- Anchored patterns and anti-backtracking guidance in SecID docs.
+- Required regex safety review notes in registry PRs.
+- Cross-runtime compatibility checks for patterns used by clients and service.
+
+**Residual risk:** Non-zero. If production telemetry indicates regex abuse/regression, rollback the offending registry change and re-review before re-deploy.
