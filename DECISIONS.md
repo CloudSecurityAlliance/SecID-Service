@@ -181,3 +181,32 @@ Sequential log of decisions for SecID-Service.
 - **Zod locale alias shim** — Fragile (depends on zod internal paths), saves ~263 KB but costs $0
 - **Fork/replace MCP SDK** — Would lose protocol compliance and automatic spec tracking
 - **Bundle size CI check** — Useful in principle but premature; we're at 2% of the limit
+
+---
+
+## ADR-010: CI/CD authentication strategy
+
+**Date:** 2025-03-05
+**Status:** Accepted
+**Decision method:** Collaborative — informed by Cloudflare docs, GitHub best practices, and organizational context
+
+**Goal:** Securely authenticate two CI/CD flows: (1) deploying the Worker and uploading registry data to Cloudflare KV, and (2) triggering SecID-Service builds from the SecID spec repo.
+
+**Context:** Two secrets are needed. The Cloudflare API token grants access to deploy Workers and write KV data. The cross-repo trigger lets the spec repo tell the service repo "registry data changed, rebuild." Both repos are under the `CloudSecurityAlliance` GitHub org.
+
+**Decision:**
+
+**Cloudflare:** Create a scoped API token (not a global API key) via the Cloudflare dashboard using the "Edit Cloudflare Workers" template. Scope to the SecID-Service account only, with permissions: Workers KV Storage (Edit), Workers Scripts (Edit), Workers Routes (Edit). Store as `CLOUDFLARE_API_TOKEN` in SecID-Service repo secrets.
+
+**Cross-repo trigger:** Start with a fine-grained GitHub PAT scoped to `CloudSecurityAlliance/SecID-Service` with Contents (Read and Write) permission. Store as `SERVICE_REPO_TOKEN` in SecID repo secrets. Migrate to a GitHub App before v1.0.
+
+**Rationale:**
+
+*Cloudflare:* Scoped API tokens follow least-privilege — the token can only manage Workers and KV for this account, not DNS, firewall rules, or other Cloudflare services. The account ID isn't sensitive (already in `wrangler.toml`).
+
+*Cross-repo:* A GitHub App is the org-level best practice (own identity, short-lived tokens, not tied to a person, higher rate limits, org-auditable). But a fine-grained PAT is adequate to start and can be swapped to a GitHub App later without changing workflow files — just replace the secret. The migration is a TODO for pre-v1.0.
+
+**Rejected alternatives:**
+- **Cloudflare global API key** — Grants access to everything on the account; violates least-privilege
+- **Classic GitHub PAT with `repo` scope** — Far too broad; grants access to all repos the user can see
+- **GitHub App immediately** — More setup (create app, install on both repos, generate keys) for a flow that isn't running yet. Fine-grained PAT unblocks the pipeline now; migrate later when it matters
