@@ -40,6 +40,17 @@ app.delete("/mcp", (c) =>
   c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Session management not supported. This is a stateless server." }, id: null }, 405)
 );
 
+// Shareable resolve URL — redirects to homepage with ?secid= for client-side resolution
+app.get("/resolve", (c) => {
+  const secid = c.req.query("secid");
+  if (secid) {
+    const target = new URL("/", c.req.url);
+    target.searchParams.set("secid", secid);
+    return c.redirect(target.toString(), 302);
+  }
+  return c.redirect("/", 302);
+});
+
 // 404 for unmatched routes (static assets are served before this by [assets])
 app.all("*", (c) => c.json({ error: "Not found" }, 404));
 

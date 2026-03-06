@@ -329,6 +329,51 @@
   const output = document.getElementById("resolver-output") as HTMLDivElement;
   const exploreBtn = document.getElementById("explore-btn") as HTMLButtonElement;
 
+  const DEFAULT_TITLE = document.title;
+
+  // --- URL state management ---
+  function updateURL(secid: string | null, replace = false): void {
+    const url = new URL(window.location.href);
+    if (secid) {
+      url.searchParams.set("secid", secid);
+    } else {
+      url.searchParams.delete("secid");
+    }
+    if (replace) {
+      history.replaceState(null, "", url.toString());
+    } else {
+      history.pushState(null, "", url.toString());
+    }
+  }
+
+  async function resolveFromURL(secid: string): Promise<void> {
+    output.hidden = false;
+    output.textContent = "Resolving\u2026";
+    try {
+      const data = await fetchResolve(secid);
+      renderResponse(output, data);
+      document.title = `${secid} \u2014 SecID`;
+    } catch (err) {
+      output.textContent = `Error: ${(err as Error).message}`;
+    }
+  }
+
+  window.addEventListener("popstate", () => {
+    const params = new URLSearchParams(window.location.search);
+    const secid = params.get("secid");
+    if (secid) {
+      input.value = secid;
+      exitExplorerMode();
+      resolveFromURL(secid);
+    } else {
+      input.value = "";
+      output.hidden = true;
+      output.textContent = "";
+      exitExplorerMode();
+      document.title = DEFAULT_TITLE;
+    }
+  });
+
   // --- Explorer state ---
   let explorerMode = false;
   let explorerPath: { label: string; secid: string | null }[] = [];
@@ -359,12 +404,14 @@
     if (!query) return;
 
     exitExplorerMode();
+    updateURL(query);
     output.hidden = false;
     output.textContent = "Resolving\u2026";
 
     try {
       const data = await fetchResolve(query);
       renderResponse(output, data);
+      document.title = `${query} \u2014 SecID`;
     } catch (err) {
       output.textContent = `Error: ${(err as Error).message}`;
     }
@@ -396,6 +443,8 @@
       container.hidden = true;
       container.textContent = "";
       exitExplorerMode();
+      updateURL(null, true);
+      document.title = DEFAULT_TITLE;
     });
     container.appendChild(btn);
   }
@@ -774,4 +823,14 @@
 
     return nav;
   }
+
+  // --- Auto-resolve from URL on page load ---
+  (function autoResolveOnLoad() {
+    const params = new URLSearchParams(window.location.search);
+    const secid = params.get("secid");
+    if (secid) {
+      input.value = secid;
+      resolveFromURL(secid);
+    }
+  })();
 </script>
