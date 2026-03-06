@@ -1,12 +1,16 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
 import { resolve } from "./resolver";
-import type {
-  ChildIndexEntry,
-  Registry,
-  RegistryNamespace,
-  ResolveResponse,
-  TypeIndex,
+import {
+  SECID_TYPES,
+  isResolutionResult,
+  type ChildIndexEntry,
+  type Registry,
+  type RegistryNamespace,
+  type ResolveResponse,
+  type ResultEntry,
+  type SecIDType,
+  type TypeIndex,
 } from "./types";
 
 /**
@@ -29,8 +33,12 @@ export async function resolveFromKV(
   // 1. Extract type without KV
   const type = extractSecIDType(input);
   if (!type) {
-    // No valid type — let the resolver handle the error message.
-    // Build an empty registry so parseSecID + resolve produce proper errors.
+    // No valid type prefix — try bare identifier search across all types.
+    // e.g., "CVE-2024-1234" → search all types' child_index for matches.
+    const bareResult = await searchBareIdentifier(ctx, input);
+    if (bareResult) return bareResult;
+
+    // Nothing matched — let the resolver produce the error message.
     const parsed = parseSecID(input, {});
     return resolve(parsed, {});
   }
@@ -163,4 +171,83 @@ function buildPartialRegistry(
     typeRegistry[ns] = data;
   }
   return { [type]: typeRegistry };
+}
+
+/**
+ * Search for a bare identifier (no secid: prefix, no type) across all types.
+ *
+ * When a user types "CVE-2024-1234" without any SecID structure, this function
+ * checks every type's child_index for pattern matches, then resolves across
+ * all matching types. This gives the same cross-source results the MCP lookup
+ * tool produces.
+ */
+async function searchBareIdentifier(
+  ctx: RegistryContext,
+  input: string
+): Promise<ResolveResponse | null> {
+  const trimmed = input.trim();
+  if (!trimmed) return null;
+
+  // Fetch all type indexes in parallel
+  const typeIndexes = await Promise.all(
+    SECID_TYPES.map(async (type) => ({
+      type,
+      index: await ctx.getTypeIndex(type),
+    }))
+  );
+
+  // Find types whose child_index patterns match the input
+  const typeMatches: Array<{
+    type: SecIDType;
+    namespaces: string[];
+    index: TypeIndex;
+  }> = [];
+
+  for (const { type, index } of typeIndexes) {
+    if (!index?.child_index) continue;
+    const matchingNs = findMatchingNamespaces(trimmed, index.child_index);
+    if (matchingNs.length > 0) {
+      typeMatches.push({ type, namespaces: matchingNs, index });
+    }
+  }
+
+  if (typeMatches.length === 0) return null;
+
+  // Resolve across all matching types in parallel
+  const resolveResults = await Promise.all(
+    typeMatches.map(async ({ type, namespaces, index }) => {
+      const syntheticInput = `secid:${type}/${trimmed}`;
+      const minimalRegistry = buildMinimalRegistry(type, index);
+      const parsed = parseSecID(syntheticInput, minimalRegistry);
+      const nsMap = await ctx.getNamespaces(type, namespaces);
+      const registry = buildPartialRegistry(type, nsMap);
+      return resolve(parsed, registry);
+    })
+  );
+
+  // Aggregate results from all types
+  const allResults: ResultEntry[] = [];
+  for (const result of resolveResults) {
+    if (result.results.length > 0) {
+      allResults.push(...result.results);
+    }
+  }
+
+  if (allResults.length === 0) return null;
+
+  // Sort: ResolutionResults first (by weight desc), then RegistryResults
+  allResults.sort((a, b) => {
+    const aIsRes = isResolutionResult(a);
+    const bIsRes = isResolutionResult(b);
+    if (aIsRes && bIsRes) return b.weight - a.weight;
+    if (aIsRes) return -1;
+    if (bIsRes) return 1;
+    return 0;
+  });
+
+  return {
+    secid_query: input,
+    status: "found",
+    results: allResults,
+  };
 }
