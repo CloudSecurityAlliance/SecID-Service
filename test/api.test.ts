@@ -25,6 +25,17 @@ describe("REST API", () => {
       expect(body.message).toContain("Empty query");
     });
 
+    it("returns error for oversized query", async () => {
+      const longSecid = `secid:advisory/${"A".repeat(1100)}`;
+      const res = await SELF.fetch(
+        `https://test.local/api/v1/resolve?secid=${encodeURIComponent(longSecid)}`
+      );
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as { status: string; message: string };
+      expect(body.status).toBe("error");
+      expect(body.message).toContain("exceeds 1024");
+    });
+
     it("resolves a CVE", async () => {
       const res = await SELF.fetch(
         "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2024-1234"

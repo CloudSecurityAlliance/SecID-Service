@@ -8,6 +8,9 @@ import type { AppEnv } from "./types";
 import type { Context } from "hono";
 import { buildErrorEntry, recordError } from "./observability";
 
+const MAX_SECID_QUERY_CHARS = 1024;
+const MAX_MCP_BODY_BYTES = 64 * 1024; // 64 KB
+
 // ── Documentation resources ──
 // These are MCP resources containing instructions for building SecID clients.
 // An AI agent can read these to generate a working client in any language.
@@ -295,8 +298,26 @@ function createMcpServer(
   server.tool(
     "resolve",
     RESOLVE_DESCRIPTION,
-    { secid: z.string().describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search") },
+    {
+      secid: z
+        .string()
+        .describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search"),
+    },
     async ({ secid }) => {
+      if (secid.length > MAX_SECID_QUERY_CHARS) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: secid.slice(0, MAX_SECID_QUERY_CHARS),
+              status: "error",
+              results: [],
+              message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
+            }),
+          }],
+          isError: true,
+        };
+      }
       try {
         const result = await resolveFromKV(registryKv, secid);
         return {
@@ -328,9 +349,25 @@ function createMcpServer(
     LOOKUP_DESCRIPTION,
     {
       type: z.enum(SECID_TYPES).describe("Security knowledge type: advisory, weakness, ttp, control, regulation, entity, or reference"),
-      identifier: z.string().describe("The identifier to search for, e.g. 'CVE-2021-44228', 'CWE-79', 'T1059.003'"),
+      identifier: z
+        .string()
+        .describe("The identifier to search for, e.g. 'CVE-2021-44228', 'CWE-79', 'T1059.003'"),
     },
     async ({ type, identifier }) => {
+      if (identifier.length > MAX_SECID_QUERY_CHARS) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: `secid:${type}/${identifier.slice(0, MAX_SECID_QUERY_CHARS)}`,
+              status: "error",
+              results: [],
+              message: `Identifier exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
+            }),
+          }],
+          isError: true,
+        };
+      }
       const secid = `secid:${type}/${identifier}`;
       try {
         const result = await resolveFromKV(registryKv, secid);
@@ -361,8 +398,26 @@ function createMcpServer(
   server.tool(
     "describe",
     DESCRIBE_DESCRIPTION,
-    { secid: z.string().describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'") },
+    {
+      secid: z
+        .string()
+        .describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'"),
+    },
     async ({ secid }) => {
+      if (secid.length > MAX_SECID_QUERY_CHARS) {
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              secid_query: secid.slice(0, MAX_SECID_QUERY_CHARS),
+              status: "error",
+              results: [],
+              message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
+            }),
+          }],
+          isError: true,
+        };
+      }
       try {
         // Strip subpath (#...) from input for describe — return source-level info
         const hashIdx = secid.indexOf("#");
@@ -471,6 +526,33 @@ function createMcpServer(
 }
 
 export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
+  if (!c.env.secid_REGISTRY) {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: { code: -32603, message: "Registry KV not configured." },
+        id: null,
+      },
+      503,
+    );
+  }
+
+  const contentLength = c.req.header("content-length");
+  const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : NaN;
+  if (Number.isFinite(parsedLength) && parsedLength > MAX_MCP_BODY_BYTES) {
+    return c.json(
+      {
+        jsonrpc: "2.0",
+        error: {
+          code: -32600,
+          message: `Request body exceeds ${MAX_MCP_BODY_BYTES} bytes.`,
+        },
+        id: null,
+      },
+      413,
+    );
+  }
+
   const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw);
 
   try {

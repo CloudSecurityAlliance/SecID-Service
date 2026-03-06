@@ -4,6 +4,9 @@ import { RegistryContext } from "./kv-registry";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
 
+const MAX_SECID_QUERY_CHARS = 1024;
+const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value size)
+
 export async function handleRegistryDownload(
   c: Context<AppEnv>
 ): Promise<Response> {
@@ -19,6 +22,16 @@ export async function handleRegistryDownload(
   if (!full) {
     return c.json(
       { error: "Registry data not found in KV" },
+      503,
+    );
+  }
+  const serialized = JSON.stringify(full);
+  const sizeBytes = new TextEncoder().encode(serialized).byteLength;
+  if (sizeBytes > MAX_KV_VALUE_BYTES) {
+    return c.json(
+      {
+        error: `Registry payload exceeds ${MAX_KV_VALUE_BYTES} bytes (25 MiB) and cannot be served safely.`,
+      },
       503,
     );
   }
@@ -49,6 +62,14 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       status: "error",
       results: [],
       message: "Malformed percent-encoding in query parameter.",
+    });
+  }
+  if (decoded.length > MAX_SECID_QUERY_CHARS) {
+    return c.json({
+      secid_query: decoded.slice(0, MAX_SECID_QUERY_CHARS),
+      status: "error",
+      results: [],
+      message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
     });
   }
 

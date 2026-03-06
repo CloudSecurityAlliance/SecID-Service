@@ -30,6 +30,7 @@ const registryDir = join(secidRepo, "registry");
 
 const PRODUCTION_NS_ID = "cfbc271787614516a39fa43d9ca4f95a";
 const PREVIEW_NS_ID = "bda410b73cc34b468c84bf2dc9fba45f";
+const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value size)
 
 interface RegistryFile {
   namespace: string;
@@ -248,6 +249,15 @@ function buildEntries(): BulkEntry[] {
   console.log(`Built ${entries.length} KV entries from ${count} namespaces:`);
   for (const type of types) {
     console.log(`  ${type}: ${typeCounts[type]} namespaces`);
+  }
+
+  for (const entry of entries) {
+    const bytes = Buffer.byteLength(entry.value, "utf8");
+    if (bytes > MAX_KV_VALUE_BYTES) {
+      throw new Error(
+        `KV entry '${entry.key}' is ${bytes} bytes, exceeds ${MAX_KV_VALUE_BYTES} byte (25 MiB) limit.`
+      );
+    }
   }
 
   return entries;

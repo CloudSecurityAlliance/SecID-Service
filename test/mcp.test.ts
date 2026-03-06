@@ -101,6 +101,23 @@ describe("MCP tool handlers", () => {
       const data = JSON.parse(resp.result!.content[0].text);
       expect(data.results.length).toBeGreaterThan(1);
     });
+
+    it("rejects oversized secid input", async () => {
+      const { body } = await mcpCallTool("resolve", {
+        secid: `secid:advisory/${"A".repeat(1100)}`,
+      });
+      const resp = body as {
+        error?: { code: number; message: string };
+        result?: { content: Array<{ text: string }> };
+      };
+      if (resp.error) {
+        expect(resp.error.message).toContain("1024");
+      } else {
+        const data = JSON.parse(resp.result!.content[0].text) as { message: string; status: string };
+        expect(data.status).toBe("error");
+        expect(data.message).toContain("Limit: 1024 characters");
+      }
+    });
   });
 
   describe("lookup tool", () => {
@@ -173,6 +190,21 @@ describe("MCP HTTP endpoint", () => {
     expect(status).toBe(200);
     const resp = body as { result?: { serverInfo?: { name: string } } };
     expect(resp.result?.serverInfo?.name).toBe("secid");
+  });
+
+  it("rejects oversized content-length", async () => {
+    const res = await SELF.fetch(MCP_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json, text/event-stream",
+        "Content-Length": "70000",
+      },
+      body: "{}",
+    });
+    expect(res.status).toBe(413);
+    const body = (await res.json()) as { error?: { message: string } };
+    expect(body.error?.message).toContain("exceeds");
   });
 
   it("returns error for unknown method", async () => {

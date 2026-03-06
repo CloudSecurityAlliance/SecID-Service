@@ -42,6 +42,16 @@ Response:
 
 No authentication. CORS enabled.
 
+## Operational Limits
+
+- `secid` input limit: **1024 characters** on REST and MCP tool inputs.
+  - REST returns `status="error"` with: `SecID query exceeds 1024 characters. Limit: 1024 characters.`
+  - MCP returns tool error content with the same explicit limit message.
+- MCP HTTP request body limit (via `Content-Length`): **64 KiB** (`413` when exceeded).
+- Cloudflare KV value limit: **25 MiB** per key.
+  - Registry upload script enforces this limit before upload.
+  - Service also checks `full:registry` payload size before serving `/api/v1/registry.json`.
+
 ## Architecture
 
 - **Runtime:** Cloudflare Workers
