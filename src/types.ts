@@ -156,6 +156,15 @@ export interface ChildIndexEntry {
   has_url: boolean;
 }
 
+// Combined child_index across all types, stored under KV key "secid"
+export interface GlobalChildIndexEntry extends ChildIndexEntry {
+  type: SecIDType;
+}
+
+export interface GlobalIndex {
+  child_index: GlobalChildIndexEntry[];
+}
+
 export interface RegistryMeta {
   version: string;
   total_namespaces: number;

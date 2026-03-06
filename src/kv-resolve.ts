@@ -2,9 +2,9 @@ import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
 import { resolve } from "./resolver";
 import {
-  SECID_TYPES,
   isResolutionResult,
   type ChildIndexEntry,
+  type GlobalChildIndexEntry,
   type ParsedSecID,
   type Registry,
   type RegistryNamespace,
@@ -177,10 +177,9 @@ function buildPartialRegistry(
 /**
  * Search for a bare identifier (no secid: prefix, no type) across all types.
  *
- * When a user types "CVE-2024-1234" without any SecID structure, this function
- * checks every type's child_index for pattern matches, then resolves across
- * all matching types. This gives the same cross-source results the MCP lookup
- * tool produces.
+ * Fetches the "secid" KV key — a single combined child_index across all types.
+ * Pattern-matches the input to find which type(s) and namespace(s) contain it,
+ * then resolves across all matches. One KV read instead of seven.
  */
 async function searchBareIdentifier(
   ctx: RegistryContext,
@@ -189,37 +188,37 @@ async function searchBareIdentifier(
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Fetch all type indexes in parallel
-  const typeIndexes = await Promise.all(
-    SECID_TYPES.map(async (type) => ({
-      type,
-      index: await ctx.getTypeIndex(type),
-    }))
-  );
+  // Single KV read: combined child_index across all types
+  const globalIndex = await ctx.getGlobalIndex();
+  if (!globalIndex?.child_index) return null;
 
-  // Find types whose child_index patterns match the input
-  const typeMatches: Array<{
-    type: SecIDType;
-    namespaces: string[];
-    index: TypeIndex;
-  }> = [];
-
-  for (const { type, index } of typeIndexes) {
-    if (!index?.child_index) continue;
-    const matchingNs = findMatchingNamespaces(trimmed, index.child_index);
-    if (matchingNs.length > 0) {
-      typeMatches.push({ type, namespaces: matchingNs, index });
+  // Pattern-match against the global child_index
+  const matchesByType = new Map<SecIDType, Set<string>>();
+  for (const entry of globalIndex.child_index) {
+    for (const pat of entry.patterns) {
+      try {
+        const re = pat.startsWith("(?i)")
+          ? new RegExp(pat.slice(4), "i")
+          : new RegExp(pat);
+        if (re.test(trimmed)) {
+          if (!matchesByType.has(entry.type)) {
+            matchesByType.set(entry.type, new Set());
+          }
+          matchesByType.get(entry.type)!.add(entry.namespace);
+          break;
+        }
+      } catch {
+        // Invalid regex — skip
+      }
     }
   }
 
-  if (typeMatches.length === 0) return null;
+  if (matchesByType.size === 0) return null;
 
   // Resolve across all matching types in parallel.
-  // Construct ParsedSecID directly instead of going through parseSecID,
-  // because the parser's dot-means-domain heuristic misidentifies things
-  // like "T1059.003" as domain namespaces.
+  // Construct ParsedSecID directly (bypasses parser's dot-means-domain heuristic).
   const resolveResults = await Promise.all(
-    typeMatches.map(async ({ type, namespaces }) => {
+    [...matchesByType.entries()].map(async ([type, namespaces]) => {
       const parsed: ParsedSecID = {
         raw: input,
         prefix: false,
@@ -231,7 +230,7 @@ async function searchBareIdentifier(
         itemVersion: null,
         qualifiers: null,
       };
-      const nsMap = await ctx.getNamespaces(type, namespaces);
+      const nsMap = await ctx.getNamespaces(type, [...namespaces]);
       const registry = buildPartialRegistry(type, nsMap);
       return resolve(parsed, registry);
     })

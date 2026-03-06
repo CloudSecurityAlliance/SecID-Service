@@ -4,6 +4,7 @@
  * Reads all JSON registry files and writes:
  *   - ns:{type}/{namespace}  — raw namespace JSON (×121)
  *   - type:{type}            — TypeIndex with child_index (×7)
+ *   - secid                  — GlobalIndex: combined child_index across all types (×1)
  *   - full:registry          — complete compiled Registry (×1)
  *   - meta:registry          — version/counts metadata (×1)
  *
@@ -199,6 +200,34 @@ function buildEntries(): BulkEntry[] {
       value: JSON.stringify(typeIndex),
     });
   }
+
+  // secid — GlobalIndex: combined child_index across all types for bare identifier search
+  const globalChildIndex: Array<ChildIndexEntry & { type: string }> = [];
+  for (const type of types) {
+    for (const [ns, data] of Object.entries(registry[type])) {
+      if (!data.match_nodes) continue;
+      for (const node of data.match_nodes) {
+        const nameSlug = extractNameSlug(node);
+        if (!node.children) continue;
+        for (const child of node.children) {
+          globalChildIndex.push({
+            type,
+            namespace: ns,
+            name_slug: nameSlug,
+            patterns: child.patterns,
+            description: child.description,
+            weight: child.weight,
+            has_url: !!child.data?.url,
+          });
+        }
+      }
+    }
+  }
+  entries.push({
+    key: "secid",
+    value: JSON.stringify({ child_index: globalChildIndex }),
+  });
+  console.log(`  global child_index: ${globalChildIndex.length} entries`);
 
   // full:registry — complete compiled registry
   entries.push({

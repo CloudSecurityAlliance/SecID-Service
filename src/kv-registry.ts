@@ -1,4 +1,5 @@
 import type {
+  GlobalIndex,
   Registry,
   RegistryMeta,
   RegistryNamespace,
@@ -69,6 +70,10 @@ export class RegistryContext {
     }
 
     return result;
+  }
+
+  async getGlobalIndex(): Promise<GlobalIndex | null> {
+    return this.kv.get<GlobalIndex>("secid", "json");
   }
 
   async getFullRegistry(): Promise<Registry | null> {
