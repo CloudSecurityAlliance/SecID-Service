@@ -7,6 +7,8 @@ interface Props {
 }
 
 const { title, description = "A universal grammar for referencing security knowledge" } = Astro.props;
+const commitSha = process.env.PUBLIC_COMMIT_SHA ?? "dev";
+const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit/${commitSha}`;
 ---
 
 <!doctype html>
@@ -105,6 +107,7 @@ const { title, description = "A universal grammar for referencing security knowl
     <footer>
       <div class="container">
         <p>SecID is a <a href="https://cloudsecurityalliance.org" target="_blank" rel="noopener">Cloud Security Alliance</a> project. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contribute on GitHub</a>.</p>
+        <p class="build-version">Service build: <a href={commitUrl} target="_blank" rel="noopener"><code>{commitSha}</code></a></p>
       </div>
     </footer>
     <style>
@@ -157,6 +160,9 @@ const { title, description = "A universal grammar for referencing security knowl
         display: flex;
         align-items: center;
         gap: 1rem;
+      }
+      .build-version {
+        margin-top: 0.5rem;
       }
       .footer-logo {
         height: 28px;

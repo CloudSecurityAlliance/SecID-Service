@@ -236,3 +236,29 @@ Sequential log of decisions for SecID-Service.
 - Cross-runtime compatibility checks for patterns used by clients and service.
 
 **Residual risk:** Non-zero. If production telemetry indicates regex abuse/regression, rollback the offending registry change and re-review before re-deploy.
+
+---
+
+## ADR-012: Abuse throttling at Cloudflare edge
+
+**Date:** 2026-03-06  
+**Status:** Accepted  
+**Decision method:** Collaborative
+
+**Goal:** Protect `secid.cloudsecurityalliance.org` from abusive traffic patterns without adding app-layer rate limiting complexity in Worker code.
+
+**Context:** SecID-Service is a public unauthenticated endpoint (REST + MCP). Abuse controls are needed, but Cloudflare already provides edge-native protection primitives (WAF rules, bot controls, managed protections, and rate limiting).
+
+**Decision:** Use Cloudflare edge controls as the primary throttling and abuse-mitigation layer for SecID-Service. Keep Worker-level input-size guards (query/body limits) as defense-in-depth, but do not implement custom per-IP throttling logic in the application runtime by default.
+
+**Rationale:**
+- Edge enforcement drops abusive traffic before Worker execution, reducing CPU burn.
+- Cloudflare controls are operationally centralized and adjustable without redeploying code.
+- App code remains simpler and less stateful.
+
+**Operational expectations:**
+- Maintain and periodically review Cloudflare WAF/rate-limit configuration for this zone.
+- Tune thresholds based on observed traffic and false-positive rates.
+- Keep app-layer hard limits (e.g., query/body length) in place even with edge controls.
+
+**Residual risk:** Misconfigured edge rules can under-block or over-block. Monitor and tune continuously.

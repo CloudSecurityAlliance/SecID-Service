@@ -72,7 +72,7 @@ export function extractRequestMetadata(req: Request): ObservabilityEntry["reques
   return {
     url: req.url,
     method: req.method,
-    cf_ray: (cf?.httpProtocol as string) ?? req.headers.get("cf-ray") ?? undefined,
+    cf_ray: req.headers.get("cf-ray") ?? (cf?.ray as string | undefined),
     cf_colo: cf?.colo as string | undefined,
     user_agent: req.headers.get("user-agent") ?? undefined,
     headers,

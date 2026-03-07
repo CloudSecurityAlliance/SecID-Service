@@ -8,7 +8,7 @@
     "deploy": "wrangler deploy",
     "build:registry": "tsx scripts/build-registry.ts",
     "upload:registry": "tsx scripts/upload-registry-kv.ts",
-    "build:website": "cd website && npm run build",
+    "build:website": "GIT_COMMIT_SHA=$(git rev-parse --short=12 HEAD) && cd website && PUBLIC_COMMIT_SHA=$GIT_COMMIT_SHA npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",

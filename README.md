@@ -51,6 +51,7 @@ No authentication. CORS enabled.
 - Cloudflare KV value limit: **25 MiB** per key.
   - Registry upload script enforces this limit before upload.
   - Service also checks `full:registry` payload size before serving `/api/v1/registry.json`.
+- Abuse throttling/rate limiting: handled primarily at the **Cloudflare edge** (WAF/rate-limit controls), with Worker input-size guards as defense in depth.
 
 ## Architecture
 

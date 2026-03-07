@@ -1,6 +1,7 @@
-import { describe, it, expect, beforeAll } from "vitest";
+import { describe, it, expect, beforeAll, vi } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
+import { RegistryContext } from "../src/kv-registry";
 
 beforeAll(async () => {
   await seedRegistryKV(env.secid_REGISTRY);
@@ -13,6 +14,22 @@ describe("REST API", () => {
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body).toEqual({ status: "ok" });
+    });
+  });
+
+  describe("GET /api/v1/registry.json", () => {
+    it("returns 503 when full registry payload exceeds 25 MiB safety limit", async () => {
+      const spy = vi
+        .spyOn(RegistryContext.prototype, "getFullRegistry")
+        .mockResolvedValue({ data: "x".repeat(26 * 1024 * 1024) } as never);
+      try {
+        const res = await SELF.fetch("https://test.local/api/v1/registry.json");
+        expect(res.status).toBe(503);
+        const body = (await res.json()) as { error: string };
+        expect(body.error).toContain("25 MiB");
+      } finally {
+        spy.mockRestore();
+      }
     });
   });
 

@@ -9,6 +9,7 @@ function makeRequest(url = "https://test.local/api/v1/resolve?secid=test"): Requ
     headers: {
       "User-Agent": "test-agent/1.0",
       "Accept": "application/json",
+      "CF-Ray": "abc123",
       "Authorization": "Bearer secret-should-not-leak",
     },
   });
@@ -25,9 +26,10 @@ describe("uuidv7", () => {
     expect(ids.size).toBe(100);
   });
 
-  it("IDs are time-sortable (later > earlier)", () => {
+  it("IDs are time-sortable (later >= earlier)", async () => {
     const first = uuidv7();
-    // Small delay to ensure timestamp advances
+    // Ensure wall clock advances at least 1 ms.
+    await new Promise((resolve) => setTimeout(resolve, 2));
     const second = uuidv7();
     // String comparison works because UUIDv7 has timestamp in most-significant bytes
     expect(second >= first).toBe(true);
@@ -42,6 +44,7 @@ describe("extractRequestMetadata", () => {
     expect(meta.url).toBe("https://test.local/api/v1/resolve?secid=test");
     expect(meta.method).toBe("GET");
     expect(meta.user_agent).toBe("test-agent/1.0");
+    expect(meta.cf_ray).toBe("abc123");
     expect(meta.headers["accept"]).toBe("application/json");
     // Authorization header should NOT be captured
     expect(meta.headers["authorization"]).toBeUndefined();
