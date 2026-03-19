@@ -82,6 +82,8 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
   weakness: "Abstract flaw patterns (CWE, OWASP Top 10)",
   ttp: "Adversary techniques (ATT&CK, ATLAS, CAPEC)",
   control: "Security requirements (NIST CSF, ISO 27001, benchmarks)",
+  disclosure:
+    "Vulnerability disclosure programs, policies, reporting channels",
   regulation: "Laws and legal requirements (GDPR, HIPAA)",
   entity: "Organizations, products, services",
   reference:

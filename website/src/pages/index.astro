@@ -34,7 +34,7 @@ const apiExample = `GET /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE
       That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers.
     </p>
     <p>
-      Your AI assistant gets three tools (<code>resolve</code>, <code>lookup</code>, <code>describe</code>) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 123 other security knowledge sources.
+      Your AI assistant gets three tools (<code>resolve</code>, <code>lookup</code>, <code>describe</code>) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 124 other security knowledge sources.
     </p>
   </section>
 
@@ -81,7 +81,7 @@ secid:control/nist.gov/800-53@r5#AC-1
   </section>
 
   <section>
-    <h2>Seven Types of Security Knowledge</h2>
+    <h2>Eight Types of Security Knowledge</h2>
     <div class="type-grid">
       <div class="type-card">
         <h3>advisory</h3>
@@ -102,6 +102,11 @@ secid:control/nist.gov/800-53@r5#AC-1
         <h3>control</h3>
         <p>Security requirements — NIST CSF, ISO 27001, CCM, CIS Benchmarks</p>
         <code>secid:control/nist.gov/csf@2.0#PR.AC-1</code>
+      </div>
+      <div class="type-card">
+        <h3>disclosure</h3>
+        <p>Vulnerability disclosure programs, policies, reporting channels</p>
+        <code>secid:disclosure/cloudsecurityalliance.org/responsible-disclosure</code>
       </div>
       <div class="type-card">
         <h3>regulation</h3>
@@ -152,7 +157,7 @@ secid:control/nist.gov/800-53@r5#AC-1
   <section>
     <h2>The Registry</h2>
     <p>
-      SecID is backed by a <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">curated registry</a> of 123 namespaces across 7 types — covering CVE, CWE, ATT&CK, NIST 800-53, ISO 27001, OWASP, and dozens more.
+      SecID is backed by a <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">curated registry</a> of 124 namespaces across 8 types — covering CVE, CWE, ATT&CK, NIST 800-53, ISO 27001, OWASP, and dozens more.
     </p>
     <p>
       The registry is open source. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contributions welcome</a> — adding a new source is a single JSON file.
