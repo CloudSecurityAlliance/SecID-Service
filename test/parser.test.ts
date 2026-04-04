@@ -32,6 +32,22 @@ describe("parseSecID", () => {
     });
   });
 
+  describe("disclosure type", () => {
+    it("parses disclosure type", () => {
+      const r = parseSecID("secid:disclosure/redhat.com/cna", REGISTRY);
+      expect(r.type).toBe("disclosure");
+      expect(r.namespace).toBe("redhat.com");
+      expect(r.name).toBe("cna");
+    });
+
+    it("parses disclosure type-only", () => {
+      const r = parseSecID("secid:disclosure", REGISTRY);
+      expect(r.prefix).toBe(true);
+      expect(r.type).toBe("disclosure");
+      expect(r.namespace).toBeNull();
+    });
+  });
+
   describe("progressive depth", () => {
     it("parses type-only", () => {
       const r = parseSecID("secid:advisory", REGISTRY);

@@ -5,6 +5,7 @@ export const SECID_TYPES = [
   "weakness",
   "ttp",
   "control",
+  "disclosure",
   "regulation",
   "entity",
   "reference",
