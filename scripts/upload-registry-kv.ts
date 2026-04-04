@@ -61,6 +61,11 @@ interface ChildIndexEntry {
 interface TypeIndex {
   type: string;
   description: string;
+  purpose?: string;
+  format?: string;
+  examples?: string[];
+  notes?: string;
+  namespace_count: number;
   namespaces: Array<{
     namespace: string;
     official_name: string;
@@ -155,6 +160,30 @@ function buildEntries(): BulkEntry[] {
     });
   }
 
+  // Read type-level JSON files (registry/<type>.json) for rich metadata
+  interface TypeLevelJson {
+    type: string;
+    official_name: string;
+    description: string;
+    purpose?: string;
+    format?: string;
+    examples?: string[];
+    notes?: string;
+    namespace_count?: number;
+  }
+
+  const typeLevelData: Record<string, TypeLevelJson> = {};
+  for (const type of Object.keys(registry).sort()) {
+    const typePath = join(registryDir, `${type}.json`);
+    try {
+      const raw = readFileSync(typePath, "utf-8");
+      typeLevelData[type] = JSON.parse(raw);
+      console.log(`  type-level JSON: ${type} ✓`);
+    } catch {
+      console.log(`  type-level JSON: ${type} — not found, using defaults`);
+    }
+  }
+
   // secid:{type} — TypeIndex with child_index
   const types = Object.keys(registry).sort();
   const typeCounts: Record<string, number> = {};
@@ -191,9 +220,15 @@ function buildEntries(): BulkEntry[] {
       }
     }
 
+    const tld = typeLevelData[type];
     const typeIndex: TypeIndex = {
       type,
-      description: TYPE_DESCRIPTIONS[type] ?? type,
+      description: tld?.description ?? TYPE_DESCRIPTIONS[type] ?? type,
+      purpose: tld?.purpose,
+      format: tld?.format,
+      examples: tld?.examples,
+      notes: tld?.notes,
+      namespace_count: namespaces.length,
       namespaces,
       child_index: childIndex,
     };

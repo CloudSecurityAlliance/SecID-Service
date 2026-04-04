@@ -139,6 +139,11 @@ export type Registry = Record<string, Record<string, RegistryNamespace>>;
 export interface TypeIndex {
   type: string;
   description: string;
+  purpose?: string;
+  format?: string;
+  examples?: string[];
+  notes?: string;
+  namespace_count: number;
   namespaces: Array<{
     namespace: string;
     official_name: string;

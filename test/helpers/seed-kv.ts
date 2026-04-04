@@ -89,6 +89,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
     const typeIndex: TypeIndex = {
       type,
       description: TYPE_DESCRIPTIONS[type] ?? type,
+      namespace_count: nsList.length,
       namespaces: nsList,
       child_index: childIndex,
     };
