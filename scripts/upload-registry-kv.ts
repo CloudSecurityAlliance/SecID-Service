@@ -2,11 +2,11 @@
  * Upload registry data to Cloudflare KV.
  *
  * Reads all JSON registry files and writes:
- *   - ns:{type}/{namespace}  — raw namespace JSON (×121)
- *   - type:{type}            — TypeIndex with child_index (×7)
- *   - secid                  — GlobalIndex: combined child_index across all types (×1)
- *   - full:registry          — complete compiled Registry (×1)
- *   - meta:registry          — version/counts metadata (×1)
+ *   - secid:{type}/{namespace}  — raw namespace JSON (×121)
+ *   - secid:{type}              — TypeIndex with child_index (×7)
+ *   - secid:*                   — GlobalIndex: combined child_index across all types (×1)
+ *   - secid:registry            — complete compiled Registry (×1)
+ *   - secid:meta                — version/counts metadata (×1)
  *
  * Usage: npx tsx scripts/upload-registry-kv.ts [--preview] [path-to-secid-repo]
  */
@@ -148,14 +148,14 @@ function buildEntries(): BulkEntry[] {
     registry[type][namespace] = data;
     count++;
 
-    // ns:{type}/{namespace} — raw namespace JSON
+    // secid:{type}/{namespace} — raw namespace JSON
     entries.push({
-      key: `ns:${type}/${namespace}`,
+      key: `secid:${type}/${namespace}`,
       value: raw,
     });
   }
 
-  // type:{type} — TypeIndex with child_index
+  // secid:{type} — TypeIndex with child_index
   const types = Object.keys(registry).sort();
   const typeCounts: Record<string, number> = {};
 
@@ -199,12 +199,12 @@ function buildEntries(): BulkEntry[] {
     };
 
     entries.push({
-      key: `type:${type}`,
+      key: `secid:${type}`,
       value: JSON.stringify(typeIndex),
     });
   }
 
-  // secid — GlobalIndex: combined child_index across all types for bare identifier search
+  // secid:* — GlobalIndex: combined child_index across all types for bare identifier search
   const globalChildIndex: Array<ChildIndexEntry & { type: string }> = [];
   for (const type of types) {
     for (const [ns, data] of Object.entries(registry[type])) {
@@ -227,20 +227,20 @@ function buildEntries(): BulkEntry[] {
     }
   }
   entries.push({
-    key: "secid",
+    key: "secid:*",
     value: JSON.stringify({ child_index: globalChildIndex }),
   });
   console.log(`  global child_index: ${globalChildIndex.length} entries`);
 
-  // full:registry — complete compiled registry
+  // secid:registry — complete compiled registry
   entries.push({
-    key: "full:registry",
+    key: "secid:registry",
     value: JSON.stringify(registry),
   });
 
-  // meta:registry — version metadata
+  // secid:meta — version metadata
   entries.push({
-    key: "meta:registry",
+    key: "secid:meta",
     value: JSON.stringify({
       version: new Date().toISOString(),
       total_namespaces: count,

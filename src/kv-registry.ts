@@ -24,7 +24,7 @@ export class RegistryContext {
 
   async getTypeIndex(type: string): Promise<TypeIndex | null> {
     if (this.typeCache.has(type)) return this.typeCache.get(type)!;
-    const data = await this.kv.get<TypeIndex>(`type:${type}`, "json");
+    const data = await this.kv.get<TypeIndex>(`secid:${type}`, "json");
     this.typeCache.set(type, data);
     return data;
   }
@@ -35,7 +35,7 @@ export class RegistryContext {
   ): Promise<RegistryNamespace | null> {
     const key = `${type}/${namespace}`;
     if (this.nsCache.has(key)) return this.nsCache.get(key)!;
-    const data = await this.kv.get<RegistryNamespace>(`ns:${key}`, "json");
+    const data = await this.kv.get<RegistryNamespace>(`secid:${key}`, "json");
     this.nsCache.set(key, data);
     return data;
   }
@@ -60,7 +60,7 @@ export class RegistryContext {
     if (toFetch.length > 0) {
       const fetches = toFetch.map(async (ns) => {
         const data = await this.kv.get<RegistryNamespace>(
-          `ns:${type}/${ns}`,
+          `secid:${type}/${ns}`,
           "json"
         );
         this.nsCache.set(`${type}/${ns}`, data);
@@ -73,14 +73,14 @@ export class RegistryContext {
   }
 
   async getGlobalIndex(): Promise<GlobalIndex | null> {
-    return this.kv.get<GlobalIndex>("secid", "json");
+    return this.kv.get<GlobalIndex>("secid:*", "json");
   }
 
   async getFullRegistry(): Promise<Registry | null> {
-    return this.kv.get<Registry>("full:registry", "json");
+    return this.kv.get<Registry>("secid:registry", "json");
   }
 
   async getMeta(): Promise<RegistryMeta | null> {
-    return this.kv.get<RegistryMeta>("meta:registry", "json");
+    return this.kv.get<RegistryMeta>("secid:meta", "json");
   }
 }

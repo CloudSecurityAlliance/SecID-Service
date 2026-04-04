@@ -51,12 +51,12 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
     typeCounts[type] = nsEntries.length;
     total += nsEntries.length;
 
-    // Write ns:{type}/{namespace} keys
+    // Write secid:{type}/{namespace} keys
     for (const [ns, data] of nsEntries) {
-      await kv.put(`ns:${type}/${ns}`, JSON.stringify(data));
+      await kv.put(`secid:${type}/${ns}`, JSON.stringify(data));
     }
 
-    // Build and write type:{type} key
+    // Build and write secid:{type} key
     const childIndex: ChildIndexEntry[] = [];
     const nsList = nsEntries.map(([ns, data]) => {
       const nsData = data as {
@@ -92,15 +92,15 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
       namespaces: nsList,
       child_index: childIndex,
     };
-    await kv.put(`type:${type}`, JSON.stringify(typeIndex));
+    await kv.put(`secid:${type}`, JSON.stringify(typeIndex));
   }
 
-  // Write full:registry
-  await kv.put("full:registry", JSON.stringify(REGISTRY));
+  // Write secid:registry
+  await kv.put("secid:registry", JSON.stringify(REGISTRY));
 
-  // Write meta:registry
+  // Write secid:meta
   await kv.put(
-    "meta:registry",
+    "secid:meta",
     JSON.stringify({
       version: new Date().toISOString(),
       total_namespaces: total,

@@ -177,7 +177,7 @@ function buildPartialRegistry(
 /**
  * Search for a bare identifier (no secid: prefix, no type) across all types.
  *
- * Fetches the "secid" KV key — a single combined child_index across all types.
+ * Fetches the "secid:*" KV key — a single combined child_index across all types.
  * Pattern-matches the input to find which type(s) and namespace(s) contain it,
  * then resolves across all matches. One KV read instead of seven.
  */
