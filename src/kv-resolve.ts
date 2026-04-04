@@ -3,6 +3,7 @@ import { extractSecIDType, parseSecID } from "./parser";
 import { resolve } from "./resolver";
 import {
   isResolutionResult,
+  SECID_TYPES,
   type ChildIndexEntry,
   type GlobalChildIndexEntry,
   type ParsedSecID,
@@ -30,6 +31,33 @@ export async function resolveFromKV(
   input: string
 ): Promise<ResolveResponse> {
   const ctx = new RegistryContext(kv);
+
+  // 0. Root query: "secid" or "secid:" → list all 8 types
+  const trimmed = input.trim();
+  if (/^secid:?$/i.test(trimmed)) {
+    const types: Array<{ type: string; description: string; namespace_count: number }> = [];
+    for (const t of SECID_TYPES) {
+      const ti = await ctx.getTypeIndex(t);
+      if (ti) {
+        types.push({
+          type: t,
+          description: ti.description,
+          namespace_count: ti.namespace_count,
+        });
+      }
+    }
+    return {
+      secid_query: input,
+      status: "found" as const,
+      results: types.map((t) => ({
+        secid: `secid:${t.type}`,
+        data: {
+          description: t.description,
+          namespace_count: t.namespace_count,
+        },
+      })),
+    };
+  }
 
   // 1. Extract type without KV
   const type = extractSecIDType(input);
