@@ -385,6 +385,7 @@
     weakness: "Weakness taxonomies and abstract flaw patterns",
     ttp: "Attack patterns, adversary techniques, and procedures",
     control: "Security controls, frameworks, and benchmarks",
+    disclosure: "Vulnerability disclosure programs, policies, and reporting channels",
     regulation: "Laws, directives, and legal requirements",
     entity: "Vendors, products, and services",
     reference: "Documents, research papers, and identifier systems",
@@ -534,6 +535,105 @@
       msgLine.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
       msgLine.style.fontSize = "0.85rem";
       container.appendChild(msgLine);
+    }
+
+    // Check if this is a type-level result (has data.namespaces array)
+    if (data.results.length === 1 && data.results[0].data?.namespaces && Array.isArray(data.results[0].data.namespaces)) {
+      const typeResult = data.results[0];
+      const typeData = typeResult.data!;
+      const namespaces = typeData.namespaces as Array<{namespace: string; official_name: string; common_name: string | null; source_count: number}>;
+
+      // Type description
+      if (typeData.description) {
+        const descDiv = document.createElement("div");
+        descDiv.textContent = typeData.description as string;
+        descDiv.style.color = "var(--fg-muted)";
+        descDiv.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+        descDiv.style.fontSize = "0.85rem";
+        descDiv.style.margin = "0.5rem 0";
+        container.appendChild(descDiv);
+      }
+
+      // Purpose
+      if (typeData.purpose) {
+        const purposeDiv = document.createElement("div");
+        purposeDiv.textContent = typeData.purpose as string;
+        purposeDiv.style.color = "var(--fg-muted)";
+        purposeDiv.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+        purposeDiv.style.fontSize = "0.8rem";
+        purposeDiv.style.margin = "0.25rem 0 0.75rem";
+        container.appendChild(purposeDiv);
+      }
+
+      // Count
+      const nsCountLine = document.createElement("div");
+      nsCountLine.textContent = `${namespaces.length} namespaces`;
+      nsCountLine.style.color = "var(--fg-muted)";
+      nsCountLine.style.fontSize = "0.8rem";
+      nsCountLine.style.marginBottom = "0.5rem";
+      container.appendChild(nsCountLine);
+
+      // Render each namespace as a clickable item
+      for (const ns of namespaces) {
+        const item = document.createElement("div");
+        item.className = "explorer-item";
+
+        const nameSpan = document.createElement("span");
+        nameSpan.style.fontWeight = "600";
+        nameSpan.textContent = ns.namespace;
+        item.appendChild(nameSpan);
+
+        if (ns.official_name) {
+          const nameInfo = document.createElement("span");
+          nameInfo.style.color = "var(--fg-muted)";
+          nameInfo.style.marginLeft = "0.5rem";
+          nameInfo.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+          nameInfo.textContent = `— ${ns.official_name}`;
+          if (ns.source_count > 1) {
+            nameInfo.textContent += ` (${ns.source_count} sources)`;
+          }
+          item.appendChild(nameInfo);
+        }
+
+        // Extract type from the secid
+        const typeStr = typeResult.secid.replace(/^secid:/, "");
+        const drillSecid = `secid:${typeStr}/${ns.namespace}`;
+        item.addEventListener("click", () => resolveAndRender(drillSecid));
+        container.appendChild(item);
+      }
+
+      // Examples section
+      if (typeData.examples && Array.isArray(typeData.examples) && (typeData.examples as string[]).length > 0) {
+        const exSection = document.createElement("div");
+        exSection.style.marginTop = "0.75rem";
+        exSection.style.paddingTop = "0.5rem";
+        exSection.style.borderTop = "1px solid var(--border)";
+
+        const exLabel = document.createElement("div");
+        exLabel.textContent = "Examples:";
+        exLabel.style.fontSize = "0.8rem";
+        exLabel.style.fontWeight = "600";
+        exLabel.style.marginBottom = "0.25rem";
+        exSection.appendChild(exLabel);
+
+        for (const ex of typeData.examples as string[]) {
+          const exItem = document.createElement("div");
+          const exLink = document.createElement("a");
+          exLink.className = "result-secid-link";
+          exLink.textContent = ex;
+          exLink.style.fontSize = "0.8rem";
+          exLink.addEventListener("click", (e) => {
+            e.preventDefault();
+            resolveAndRender(ex);
+          });
+          exItem.appendChild(exLink);
+          exSection.appendChild(exItem);
+        }
+
+        container.appendChild(exSection);
+      }
+
+      return; // Don't fall through to normal result rendering
     }
 
     if (data.results && data.results.length > 0) {
