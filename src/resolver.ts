@@ -161,29 +161,21 @@ function describeSource(
   parsed: ParsedSecID,
   node: MatchNode
 ): ResolveResponse {
-  const data: Record<string, unknown> = {
-    official_name: node.data.official_name ?? node.description,
-    common_name: node.data.common_name ?? null,
-    description: node.data.description ?? node.description,
-    notes: node.data.notes ?? null,
-    urls: node.data.urls ?? [],
-  };
-
-  if (node.data.version_required) {
-    data.version_required = true;
-    data.versions_available = node.data.versions_available ?? [];
-    data.version_disambiguation = node.data.version_disambiguation ?? null;
+  // Pass through all non-null data fields from the match node
+  const data: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(node.data)) {
+    if (val != null) data[key] = val;
   }
+  // Ensure core fields have defaults
+  if (!data.official_name) data.official_name = node.description;
+  if (!data.description) data.description = node.description;
+  if (!data.urls) data.urls = [];
 
   if (node.children && node.children.length > 0) {
     data.patterns = node.children.map((c) => ({
       pattern: c.patterns[0],
       description: c.description,
     }));
-  }
-
-  if (node.data.examples && node.data.examples.length > 0) {
-    data.examples = node.data.examples;
   }
 
   const nameSlug = extractNameSlug(node);
