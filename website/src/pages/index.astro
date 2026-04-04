@@ -34,7 +34,7 @@ const apiExample = `GET /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE
       That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers.
     </p>
     <p>
-      Your AI assistant gets three tools (<code>resolve</code>, <code>lookup</code>, <code>describe</code>) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 124 other security knowledge sources.
+      Your AI assistant gets three tools (<code>resolve</code>, <code>lookup</code>, <code>describe</code>) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 600+ other security knowledge sources.
     </p>
   </section>
 
@@ -84,42 +84,42 @@ secid:control/nist.gov/800-53@r5#AC-1
     <h2>Eight Types of Security Knowledge</h2>
     <div class="type-grid">
       <div class="type-card">
-        <h3>advisory</h3>
+        <h3><a href="/resolve?secid=secid:advisory" class="type-link">advisory</a></h3>
         <p>Vulnerability publications — CVEs, vendor advisories, GHSAs, incident reports</p>
         <code>secid:advisory/mitre.org/cve#CVE-2024-1234</code>
       </div>
       <div class="type-card">
-        <h3>weakness</h3>
+        <h3><a href="/resolve?secid=secid:weakness" class="type-link">weakness</a></h3>
         <p>Abstract flaw patterns — CWE, OWASP Top 10</p>
         <code>secid:weakness/mitre.org/cwe#CWE-79</code>
       </div>
       <div class="type-card">
-        <h3>ttp</h3>
+        <h3><a href="/resolve?secid=secid:ttp" class="type-link">ttp</a></h3>
         <p>Adversary techniques — MITRE ATT&CK, ATLAS, CAPEC</p>
         <code>secid:ttp/mitre.org/attack#T1059.003</code>
       </div>
       <div class="type-card">
-        <h3>control</h3>
+        <h3><a href="/resolve?secid=secid:control" class="type-link">control</a></h3>
         <p>Security requirements — NIST CSF, ISO 27001, CCM, CIS Benchmarks</p>
         <code>secid:control/nist.gov/csf@2.0#PR.AC-1</code>
       </div>
       <div class="type-card">
-        <h3>disclosure</h3>
+        <h3><a href="/resolve?secid=secid:disclosure" class="type-link">disclosure</a></h3>
         <p>Vulnerability disclosure programs, policies, reporting channels</p>
-        <code>secid:disclosure/cloudsecurityalliance.org/responsible-disclosure</code>
+        <code>secid:disclosure/redhat.com/cna</code>
       </div>
       <div class="type-card">
-        <h3>regulation</h3>
+        <h3><a href="/resolve?secid=secid:regulation" class="type-link">regulation</a></h3>
         <p>Laws and legal requirements — GDPR, HIPAA, PCI DSS</p>
-        <code>secid:regulation/eu/gdpr#Art-32</code>
+        <code>secid:regulation/europa.eu/gdpr#art-32</code>
       </div>
       <div class="type-card">
-        <h3>entity</h3>
+        <h3><a href="/resolve?secid=secid:entity" class="type-link">entity</a></h3>
         <p>Organizations, products, services</p>
         <code>secid:entity/microsoft.com/azure</code>
       </div>
       <div class="type-card">
-        <h3>reference</h3>
+        <h3><a href="/resolve?secid=secid:reference" class="type-link">reference</a></h3>
         <p>Documents, research, identifier systems — arXiv, DOI, RFCs, CSA artifacts</p>
         <code>secid:reference/ietf.org/rfc#RFC-9110</code>
       </div>
@@ -157,7 +157,7 @@ secid:control/nist.gov/800-53@r5#AC-1
   <section>
     <h2>The Registry</h2>
     <p>
-      SecID is backed by a <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">curated registry</a> of 124 namespaces across 8 types — covering CVE, CWE, ATT&CK, NIST 800-53, ISO 27001, OWASP, and dozens more.
+      SecID is backed by a <a href="https://github.com/CloudSecurityAlliance/SecID/tree/main/registry" target="_blank" rel="noopener">curated registry</a> of 616 namespaces across 8 types — covering CVE, CWE, ATT&CK, NIST 800-53, ISO 27001, OWASP, and dozens more.
     </p>
     <p>
       The registry is open source. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contributions welcome</a> — adding a new source is a single JSON file.
@@ -252,6 +252,13 @@ secid:control/nist.gov/800-53@r5#AC-1
   .type-card code {
     font-size: 0.75rem;
     word-break: break-all;
+  }
+  .type-card h3 a {
+    color: inherit;
+    text-decoration: none;
+  }
+  .type-card h3 a:hover {
+    text-decoration: underline;
   }
   .mcp-setup {
     padding: 1.5rem;
