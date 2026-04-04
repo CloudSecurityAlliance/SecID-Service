@@ -693,27 +693,147 @@
           item.appendChild(urlLine);
         }
 
-        // Registry data fields
+        // Registry data fields — show all useful data
         if (r.data) {
           const d = r.data;
-          if (d.official_name) {
+
+          // Text fields: render labeled lines for known fields
+          const textFields: Array<[string, string | undefined]> = [
+            ["Name", d.official_name as string | undefined],
+            ["Common", d.common_name as string | undefined],
+          ];
+          for (const [label, val] of textFields) {
+            if (!val) continue;
             const line = document.createElement("div");
-            line.textContent = `Name: ${d.official_name}`;
+            line.textContent = `${label}: ${val}`;
             line.style.fontSize = "0.8rem";
             item.appendChild(line);
           }
-          if (d.common_name) {
+
+          // Description/notes/scope — grey sans-serif body text
+          const bodyFields: Array<[string | null, string | undefined]> = [
+            [null, d.description as string | undefined],
+            ["Scope", d.scope as string | undefined],
+            [null, d.note as string | undefined],
+            [null, d.notes as string | undefined],
+          ];
+          for (const [label, val] of bodyFields) {
+            if (!val) continue;
             const line = document.createElement("div");
-            line.textContent = `Common: ${d.common_name}`;
-            line.style.fontSize = "0.8rem";
-            item.appendChild(line);
-          }
-          if (d.description) {
-            const line = document.createElement("div");
-            line.textContent = `${d.description}`;
+            line.textContent = label ? `${label}: ${val}` : val;
             line.style.color = "var(--fg-muted)";
             line.style.fontSize = "0.8rem";
             line.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+            line.style.marginTop = "0.25rem";
+            item.appendChild(line);
+          }
+
+          // URLs — render as clickable links
+          if (d.urls && Array.isArray(d.urls)) {
+            for (const u of d.urls as Array<{url: string; note?: string; type?: string}>) {
+              const urlDiv = document.createElement("div");
+              urlDiv.style.marginTop = "0.2rem";
+              const link = document.createElement("a");
+              link.href = u.url;
+              link.target = "_blank";
+              link.rel = "noopener";
+              link.style.color = "var(--accent)";
+              link.style.fontSize = "0.8rem";
+              link.style.wordBreak = "break-all";
+              link.textContent = u.note || u.url;
+              urlDiv.appendChild(link);
+              if (u.note) {
+                const urlSpan = document.createElement("span");
+                urlSpan.textContent = ` — ${u.url}`;
+                urlSpan.style.fontSize = "0.75rem";
+                urlSpan.style.color = "var(--fg-muted)";
+                urlSpan.style.wordBreak = "break-all";
+                urlDiv.appendChild(urlSpan);
+              }
+              item.appendChild(urlDiv);
+            }
+          }
+
+          // Contacts (disclosure entries)
+          if (d.contacts && Array.isArray(d.contacts)) {
+            for (const c of d.contacts as Array<{type: string; value: string; note?: string}>) {
+              const cDiv = document.createElement("div");
+              cDiv.style.marginTop = "0.2rem";
+              cDiv.style.fontSize = "0.8rem";
+              if (c.type === "email") {
+                const link = document.createElement("a");
+                link.href = `mailto:${c.value}`;
+                link.style.color = "var(--accent)";
+                link.textContent = c.value;
+                cDiv.appendChild(link);
+                if (c.note) {
+                  const noteSpan = document.createElement("span");
+                  noteSpan.textContent = ` — ${c.note}`;
+                  noteSpan.style.color = "var(--fg-muted)";
+                  cDiv.appendChild(noteSpan);
+                }
+              } else if (c.type === "web") {
+                const link = document.createElement("a");
+                link.href = c.value;
+                link.target = "_blank";
+                link.rel = "noopener";
+                link.style.color = "var(--accent)";
+                link.style.wordBreak = "break-all";
+                link.textContent = c.note || c.value;
+                cDiv.appendChild(link);
+              } else {
+                cDiv.textContent = `${c.type}: ${c.value}${c.note ? ` — ${c.note}` : ""}`;
+                cDiv.style.color = "var(--fg-muted)";
+              }
+              item.appendChild(cDiv);
+            }
+          }
+
+          // Patterns (child patterns available)
+          if (d.patterns && Array.isArray(d.patterns)) {
+            const pDiv = document.createElement("div");
+            pDiv.style.marginTop = "0.4rem";
+            pDiv.style.fontSize = "0.8rem";
+            pDiv.style.color = "var(--fg-muted)";
+            pDiv.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+            const patLabel = document.createElement("span");
+            patLabel.textContent = "Patterns: ";
+            patLabel.style.fontWeight = "600";
+            pDiv.appendChild(patLabel);
+            for (const p of d.patterns as Array<{pattern: string; description: string}>) {
+              const pLine = document.createElement("div");
+              pLine.style.marginLeft = "1rem";
+              pLine.textContent = `${p.description}`;
+              pDiv.appendChild(pLine);
+            }
+            item.appendChild(pDiv);
+          }
+
+          // Examples
+          if (d.examples && Array.isArray(d.examples) && (d.examples as unknown[]).length > 0) {
+            const exDiv = document.createElement("div");
+            exDiv.style.marginTop = "0.3rem";
+            exDiv.style.fontSize = "0.8rem";
+            exDiv.style.color = "var(--fg-muted)";
+            const exLabel = document.createElement("span");
+            exLabel.textContent = "Examples: ";
+            exLabel.style.fontWeight = "600";
+            exDiv.appendChild(exLabel);
+            const exText = (d.examples as unknown[]).map(e => typeof e === "string" ? e : (e as {input?: string}).input || JSON.stringify(e)).join(", ");
+            exDiv.appendChild(document.createTextNode(exText));
+            item.appendChild(exDiv);
+          }
+
+          // Remaining data fields not yet rendered — show as key: value
+          const rendered = new Set(["official_name", "common_name", "description", "scope", "note", "notes", "urls", "contacts", "patterns", "examples", "weight", "source_count", "child_count"]);
+          for (const [key, val] of Object.entries(d)) {
+            if (rendered.has(key) || val == null) continue;
+            if (typeof val === "object") continue; // skip complex objects
+            const line = document.createElement("div");
+            line.textContent = `${key}: ${val}`;
+            line.style.fontSize = "0.75rem";
+            line.style.color = "var(--fg-muted)";
+            line.style.marginTop = "0.1rem";
             item.appendChild(line);
           }
         }
