@@ -58,6 +58,27 @@ export async function resolveFromKV(
   // 4. Parse
   const parsed = parseSecID(input, minimalRegistry);
 
+  // Type-only query — return type metadata from TypeIndex directly
+  // (avoids fetching all 486+ disclosure namespaces just to list them)
+  if (!parsed.namespace && !parsed.name) {
+    return {
+      secid_query: input,
+      status: "found" as const,
+      results: [{
+        secid: `secid:${type}`,
+        data: {
+          description: typeIndex.description,
+          purpose: typeIndex.purpose ?? null,
+          format: typeIndex.format ?? null,
+          examples: typeIndex.examples ?? [],
+          notes: typeIndex.notes ?? null,
+          namespace_count: typeIndex.namespace_count,
+          namespaces: typeIndex.namespaces,
+        },
+      }],
+    };
+  }
+
   // 5. Determine which namespace(s) to fetch
   const namespacesToFetch = determineNamespaces(parsed, typeIndex);
 

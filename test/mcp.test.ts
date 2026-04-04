@@ -164,7 +164,11 @@ describe("MCP tool handlers", () => {
       const resp = body as { result?: { content: Array<{ text: string }> } };
       const data = JSON.parse(resp.result!.content[0].text);
       expect(data.status).toBe("found");
-      expect(data.results.length).toBeGreaterThan(10);
+      expect(data.results.length).toBe(1);
+      const result = data.results[0].data;
+      expect(result.description).toBeDefined();
+      expect(result.namespace_count).toBeGreaterThan(10);
+      expect(result.namespaces.length).toBeGreaterThan(10);
     });
   });
 });

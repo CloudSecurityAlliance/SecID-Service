@@ -95,10 +95,15 @@ describe("resolveFromKV", () => {
     expect((result.results[0] as { url: string }).url).toContain("cve.org");
   });
 
-  it("resolves type-only listing", async () => {
+  it("resolves type-only listing with metadata", async () => {
     const result = await resolveFromKV(env.secid_REGISTRY, "secid:advisory");
     expect(result.status).toBe("found");
-    expect(result.results.length).toBeGreaterThan(10);
+    expect(result.results.length).toBe(1);
+    const data = (result.results[0] as { data: Record<string, unknown> }).data;
+    expect(data.description).toBeDefined();
+    expect(data.namespace_count).toBeGreaterThan(10);
+    expect(Array.isArray(data.namespaces)).toBe(true);
+    expect((data.namespaces as unknown[]).length).toBeGreaterThan(10);
   });
 
   it("resolves namespace listing", async () => {
