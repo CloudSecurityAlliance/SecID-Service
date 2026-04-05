@@ -1,6 +1,6 @@
 # SecID-Service
 
-REST API and MCP server for resolving security identifiers to URLs.
+REST API and MCP server for resolving security identifiers to URLs. A [Cloud Security Alliance](https://cloudsecurityalliance.org) project by Kurt Seifried, Chief Innovation Officer.
 
 **Live at [secid.cloudsecurityalliance.org](https://secid.cloudsecurityalliance.org/)**
 
@@ -12,7 +12,7 @@ Add SecID to your AI assistant as a remote MCP server:
 https://secid.cloudsecurityalliance.org/mcp
 ```
 
-That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers. Your AI assistant gets three tools (`resolve`, `lookup`, `describe`) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 121 other security knowledge sources.
+That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers. Your AI assistant gets three tools (`resolve`, `lookup`, `describe`) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 650+ other security knowledge sources.
 
 ## REST API
 
@@ -57,7 +57,7 @@ No authentication. CORS enabled.
 
 - **Runtime:** Cloudflare Workers
 - **Framework:** Hono + @modelcontextprotocol/sdk
-- **Registry:** Compiled from [SecID](https://github.com/CloudSecurityAlliance/SecID) registry JSON files (121 namespaces, 7 types)
+- **Registry:** Compiled from [SecID](https://github.com/CloudSecurityAlliance/SecID) registry JSON files (661 namespaces, 9 types)
 - **Website:** Astro static site served from the same Worker
 
 ## Development

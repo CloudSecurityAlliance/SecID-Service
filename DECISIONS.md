@@ -288,3 +288,33 @@ Sequential log of decisions for SecID-Service.
 **Rationale:** A commit SHA is the simplest traceable identifier — it tells you exactly what code is running. 12 characters is short enough for display but long enough to be unambiguous. Linking to the GitHub commit gives one-click access to the diff. The "dev" fallback gracefully handles local development without broken UI.
 
 **Why not a version number or tag?** The website is rebuilt on every registry update (not just code changes), so semantic versions would require a release process that doesn't match the deployment cadence. The commit SHA is always available and always unique.
+
+---
+
+## ADR-014: Namespace counts are manually updated at deploy time
+
+**Date:** 2026-04-05
+**Status:** Accepted
+**Decision method:** Collaborative
+
+**Goal:** Keep the namespace count displayed on the website and in READMEs reasonably current without adding runtime API calls or build-time complexity.
+
+**Context:** The website (`index.astro`) and READMEs display a namespace count like "661 namespaces across 9 types." This number changes as the registry grows. Options are: (1) fetch from API at build time, (2) fetch client-side at runtime, (3) update manually when deploying.
+
+**Decision:** Update the count manually in `index.astro` and README files when deploying or when the count has drifted noticeably. No API call, no build-time fetch.
+
+**Locations to update:**
+- `website/src/pages/index.astro` — "The Registry" section
+- `README.md` — architecture line ("661 namespaces, 9 types") and MCP description ("650+ other security knowledge sources")
+
+**Rationale:** The count is for human context ("this is a substantial registry"), not for precision. A count of 661 vs 670 doesn't change anyone's decision. API calls at build time add a dependency on the live service during builds. Client-side fetches add JS complexity for a vanity number. Manual updates are simple, and the count is easy to regenerate:
+
+```bash
+# In the SecID spec repo:
+for type in advisory weakness ttp control capability disclosure regulation entity reference; do
+  count=$(find registry/$type -name '*.json' -not -name '_*' 2>/dev/null | wc -l | tr -d ' ')
+  echo "$type: $count"
+done
+```
+
+**When to update:** During deploys, or when someone notices it's significantly stale (50+ difference). Exact counts are available via the API and the registry download.

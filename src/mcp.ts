@@ -215,7 +215,7 @@ Weights: 100=primary, 80=secondary, 50=alternative. Sort descending.
 
 const RESOLVE_DESCRIPTION = `Resolve a SecID string to URL(s) where that security resource can be found.
 
-SecID is a universal grammar for security knowledge: secid:type/namespace/name[@version]#subpath
+SecID is a Cloud Security Alliance project by Kurt Seifried (Chief Innovation Officer). It provides a universal grammar for security knowledge: secid:type/namespace/name[@version]#subpath
 
 EXAMPLES:
   secid:advisory/mitre.org/cve#CVE-2021-44228  → CVE record URL
