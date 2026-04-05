@@ -137,6 +137,9 @@
     max-height: 400px;
     overflow-y: auto;
   }
+  .resolver-output.explorer-active {
+    max-height: none;
+  }
   .output-close-btn {
     position: absolute;
     top: 0.4rem;
@@ -427,6 +430,7 @@
     explorerMode = true;
     explorerPath = [{ label: "Registry", secid: null }];
     output.hidden = false;
+    output.classList.add("explorer-active");
     renderExplorerRoot();
   });
 
@@ -464,6 +468,7 @@
   function exitExplorerMode(): void {
     explorerMode = false;
     explorerPath = [];
+    output.classList.remove("explorer-active");
   }
 
   // --- Copy button helper ---
