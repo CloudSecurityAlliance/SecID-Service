@@ -900,10 +900,60 @@
       navRow.appendChild(createCopyButton(data, "copy-json-btn"));
       output.appendChild(navRow);
 
-      if (data.results && data.results.length > 0) {
+      // Check if this is a type-level response (single result with namespaces array)
+      if (data.results.length === 1 && data.results[0].data?.namespaces && Array.isArray(data.results[0].data.namespaces)) {
+        const typeResult = data.results[0];
+        const typeData = typeResult.data!;
+        const namespaces = typeData.namespaces as Array<{namespace: string; official_name: string; common_name: string | null; source_count: number}>;
+
+        if (typeData.description) {
+          const descDiv = document.createElement("div");
+          descDiv.textContent = typeData.description as string;
+          descDiv.style.color = "var(--fg-muted)";
+          descDiv.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+          descDiv.style.fontSize = "0.85rem";
+          descDiv.style.margin = "0.5rem 0";
+          output.appendChild(descDiv);
+        }
+
+        const nsCountLine = document.createElement("div");
+        nsCountLine.textContent = `${namespaces.length} namespaces`;
+        nsCountLine.style.color = "var(--fg-muted)";
+        nsCountLine.style.fontSize = "0.8rem";
+        nsCountLine.style.marginBottom = "0.5rem";
+        output.appendChild(nsCountLine);
+
+        const typeStr = typeResult.secid.replace(/^secid:/, "");
+        for (const ns of namespaces) {
+          const item = document.createElement("div");
+          item.className = "explorer-item";
+
+          const nameSpan = document.createElement("span");
+          nameSpan.style.fontWeight = "600";
+          nameSpan.textContent = ns.namespace;
+          item.appendChild(nameSpan);
+
+          if (ns.official_name) {
+            const nameInfo = document.createElement("span");
+            nameInfo.style.color = "var(--fg-muted)";
+            nameInfo.style.marginLeft = "0.5rem";
+            nameInfo.style.fontFamily = "var(--font-sans, system-ui, sans-serif)";
+            nameInfo.textContent = `\u2014 ${ns.official_name}`;
+            if (ns.source_count > 1) {
+              nameInfo.textContent += ` (${ns.source_count} sources)`;
+            }
+            item.appendChild(nameInfo);
+          }
+
+          const drillSecid = `secid:${typeStr}/${ns.namespace}`;
+          item.addEventListener("click", () => navigateExplorer(drillSecid, ns.namespace));
+          output.appendChild(item);
+        }
+      } else if (data.results && data.results.length > 0) {
         for (const r of data.results) {
           // Determine if this result can be drilled deeper
-          const hasChildren = !r.url && r.data;
+          // Prevent self-referencing loops: if r.secid matches what we queried, it's a leaf
+          const hasChildren = !r.url && r.data && r.secid !== secid;
 
           if (hasChildren) {
             // Clickable item for further navigation
