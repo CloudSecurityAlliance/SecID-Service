@@ -2,15 +2,15 @@
 // Valid SecID types as defined by the spec
 export const SECID_TYPES = [
   "advisory",
-  "weakness",
-  "ttp",
-  "control",
   "capability",
-  "methodology",
+  "control",
   "disclosure",
-  "regulation",
   "entity",
+  "methodology",
   "reference",
+  "regulation",
+  "ttp",
+  "weakness",
 ] as const;
 
 export type SecIDType = (typeof SECID_TYPES)[number];

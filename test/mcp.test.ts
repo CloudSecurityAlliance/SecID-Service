@@ -326,7 +326,7 @@ describe("MCP end-to-end flow", () => {
     const { body: listBody } = await mcpPost(jsonrpc("resources/list", {}, 2));
     const listResp = listBody as { result?: { resources: Array<{ uri: string; name: string }> } };
     const resources = listResp.result!.resources;
-    expect(resources.length).toBe(13); // 1 registry + 9 type listings + 2 docs + 1 feedback
+    expect(resources.length).toBe(14); // 1 registry + 10 type listings + 2 docs + 1 feedback
 
     // Read a specific resource
     const { body: readBody } = await mcpPost(
