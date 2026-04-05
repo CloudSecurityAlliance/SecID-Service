@@ -761,6 +761,76 @@
             }
           }
 
+          // Source URL (capability entries often use source instead of urls array)
+          if (d.source && typeof d.source === "string" && d.source.startsWith("http")) {
+            const srcDiv = document.createElement("div");
+            srcDiv.style.marginTop = "0.2rem";
+            const link = document.createElement("a");
+            link.href = d.source as string;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.style.color = "var(--accent)";
+            link.style.fontSize = "0.8rem";
+            link.style.wordBreak = "break-all";
+            link.textContent = "Documentation";
+            srcDiv.appendChild(link);
+            const urlSpan = document.createElement("span");
+            urlSpan.textContent = ` — ${d.source}`;
+            urlSpan.style.fontSize = "0.75rem";
+            urlSpan.style.color = "var(--fg-muted)";
+            urlSpan.style.wordBreak = "break-all";
+            srcDiv.appendChild(urlSpan);
+            item.appendChild(srcDiv);
+          }
+
+          // Audit commands (capability entries)
+          if (d.audit && typeof d.audit === "object" && !Array.isArray(d.audit)) {
+            const auditDiv = document.createElement("div");
+            auditDiv.style.marginTop = "0.4rem";
+            const auditLabel = document.createElement("div");
+            auditLabel.textContent = "Audit:";
+            auditLabel.style.fontSize = "0.8rem";
+            auditLabel.style.fontWeight = "600";
+            auditLabel.style.color = "var(--fg)";
+            auditDiv.appendChild(auditLabel);
+            for (const [key, val] of Object.entries(d.audit as Record<string, string>)) {
+              if (typeof val !== "string") continue;
+              const cmdLine = document.createElement("div");
+              cmdLine.style.fontSize = "0.75rem";
+              cmdLine.style.fontFamily = "var(--font-mono)";
+              cmdLine.style.color = "var(--fg-muted)";
+              cmdLine.style.marginLeft = "0.5rem";
+              cmdLine.style.wordBreak = "break-all";
+              cmdLine.textContent = `${key}: ${val}`;
+              auditDiv.appendChild(cmdLine);
+            }
+            item.appendChild(auditDiv);
+          }
+
+          // Configure commands (capability entries)
+          if (d.configure && typeof d.configure === "object" && !Array.isArray(d.configure)) {
+            const cfgDiv = document.createElement("div");
+            cfgDiv.style.marginTop = "0.3rem";
+            const cfgLabel = document.createElement("div");
+            cfgLabel.textContent = "Configure:";
+            cfgLabel.style.fontSize = "0.8rem";
+            cfgLabel.style.fontWeight = "600";
+            cfgLabel.style.color = "var(--fg)";
+            cfgDiv.appendChild(cfgLabel);
+            for (const [key, val] of Object.entries(d.configure as Record<string, string>)) {
+              if (typeof val !== "string") continue;
+              const cmdLine = document.createElement("div");
+              cmdLine.style.fontSize = "0.75rem";
+              cmdLine.style.fontFamily = "var(--font-mono)";
+              cmdLine.style.color = "var(--fg-muted)";
+              cmdLine.style.marginLeft = "0.5rem";
+              cmdLine.style.wordBreak = "break-all";
+              cmdLine.textContent = `${key}: ${val}`;
+              cfgDiv.appendChild(cmdLine);
+            }
+            item.appendChild(cfgDiv);
+          }
+
           // Contacts (disclosure entries)
           if (d.contacts && Array.isArray(d.contacts)) {
             for (const c of d.contacts as Array<{type: string; value: string; note?: string}>) {
