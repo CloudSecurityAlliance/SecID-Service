@@ -247,6 +247,24 @@ Multiple results are normal — same resource at different URLs, sorted by weigh
 CROSS-SOURCE SEARCH: Omit namespace to search all sources of that type.
   secid:advisory/CVE-2021-44228 → returns URLs from MITRE, NVD, Red Hat, etc.
 
+VULNERABILITY REPORTING — "Who do I report this to?":
+  The disclosure type contains 486 CVE Numbering Authority (CNA) programs with:
+  - scope: what products/projects each CNA covers
+  - contacts: email addresses and web forms for reporting
+  - policy URLs: the CNA's disclosure policy
+  - program role: CNA, Root, CNA-LR (last resort), Top-Level Root
+
+  To find who handles vulnerabilities for a vendor:
+    secid:disclosure/redhat.com     → lists Red Hat's CNA, CNA-LR, and Root programs
+    secid:disclosure/apple.com/cna  → Apple's CNA with contact (product-security@apple.com)
+    secid:disclosure/cisco.com/cna  → Cisco's CNA with contact and PSIRT link
+
+  To find the CNA of last resort (for products not covered by any specific CNA):
+    secid:disclosure/mitre.org/cna-lr → MITRE's CNA-LR covers everything else
+
+  Each CNA result includes a scope field describing exactly what that program covers,
+  so you can determine if a specific product falls within their scope.
+
 QUERY DEPTH: More specific = URLs, less specific = registry browsing data.
 
 To build an HTTP client instead of using this tool: GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={secid} — encode # as %23 in the query parameter.`;
@@ -267,11 +285,21 @@ EXAMPLES:
   lookup(type="disclosure", identifier="redhat.com")
     → Red Hat's CNA, CNA-LR, and Root programs with scopes and contacts
 
+VULNERABILITY REPORTING USE CASE:
+  "I found a vulnerability in X — who do I report it to?"
+  Use type="disclosure" with the vendor's domain as identifier:
+    lookup(type="disclosure", identifier="cisco.com")    → Cisco's CNA contact + scope
+    lookup(type="disclosure", identifier="apple.com")    → Apple's CNA (product-security@apple.com)
+    lookup(type="disclosure", identifier="google.com")   → Google's 5 CNA programs (Android, Cloud, Devices, Chrome, main)
+  Results include scope (what products are covered), contacts (email/web form), and disclosure policy URLs.
+  486 CVE Numbering Authorities are registered. If no CNA covers the product, MITRE is the CNA of Last Resort:
+    lookup(type="disclosure", identifier="mitre.org")    → MITRE CNA-LR for uncovered products
+
 RESPONSE: Same format as resolve — { secid_query, status, results[], message? }
 Results from different sources will have different secid values showing where each match was found.
 Sort by weight descending — highest weight is the most authoritative source.
 
-TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), disclosure (CVE CNAs, PSIRTs, vulnerability reporting), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
+TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), disclosure (CVE CNAs, PSIRTs, vulnerability reporting — 486 CNAs with scope, contacts, policy), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
 
 const DESCRIBE_DESCRIPTION = `Get registry metadata about a SecID source, namespace, or type — without resolving a specific item.
 
@@ -284,6 +312,12 @@ EXAMPLES:
   secid:control                  → list of all control namespaces
   secid:disclosure/redhat.com       → list Red Hat's disclosure programs (CNA, CNA-LR, Root)
   secid:disclosure                  → list all 486 CVE CNA disclosure namespaces
+
+DISCLOSURE / CNA DISCOVERY:
+  Use describe with the disclosure type to find vulnerability reporting channels:
+  secid:disclosure/apple.com/cna  → Apple's CNA: scope, contact email, disclosure policy URL
+  secid:disclosure/google.com     → Google's 5 CNA programs (Android, Cloud, Devices, Chrome, Mandiant)
+  Each CNA entry includes: scope (what it covers), contacts (email/form), cve_program_role, disclosure policy URL.
 
 If you pass a SecID with a subpath (e.g. secid:advisory/mitre.org/cve#CVE-2024-1234), the subpath is stripped and you get source-level info instead of resolution.
 
