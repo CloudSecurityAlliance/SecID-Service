@@ -87,7 +87,7 @@ export async function resolveFromKV(
   const parsed = parseSecID(input, minimalRegistry);
 
   // Type-only query — return type metadata from TypeIndex directly
-  // (avoids fetching all 486+ disclosure namespaces just to list them)
+  // (avoids fetching all 502+ disclosure namespaces just to list them)
   if (!parsed.namespace && !parsed.name) {
     return {
       secid_query: input,

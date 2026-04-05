@@ -57,7 +57,7 @@ No authentication. CORS enabled.
 
 - **Runtime:** Cloudflare Workers
 - **Framework:** Hono + @modelcontextprotocol/sdk
-- **Registry:** Compiled from [SecID](https://github.com/CloudSecurityAlliance/SecID) registry JSON files (661 namespaces, 9 types)
+- **Registry:** Compiled from [SecID](https://github.com/CloudSecurityAlliance/SecID) registry JSON files (700+ namespaces, 10 types)
 - **Website:** Astro static site served from the same Worker
 
 ## Development

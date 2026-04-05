@@ -225,7 +225,7 @@ EXAMPLES:
   secid:advisory/mitre.org/cve                  → registry info about CVE as a source
   secid:advisory                                → list all advisory namespaces
   secid:disclosure/redhat.com/cna                   → Red Hat CNA scope, contacts, policy URL
-  secid:disclosure                                  → list all 486 disclosure namespaces (CVE CNAs)
+  secid:disclosure                                  → list all 502 disclosure namespaces (CVE Program partners)
 
 RESPONSE FORMAT:
   { secid_query, status, results[], message? }
@@ -248,7 +248,7 @@ CROSS-SOURCE SEARCH: Omit namespace to search all sources of that type.
   secid:advisory/CVE-2021-44228 → returns URLs from MITRE, NVD, Red Hat, etc.
 
 VULNERABILITY REPORTING — "Who do I report this to?" / "How do I get a CVE?":
-  The disclosure type contains 486 CVE Numbering Authority (CNA) programs with:
+  The disclosure type contains 502 CVE Program partner programs with:
   - scope: what products/projects each CNA covers
   - contacts: email addresses and web forms for reporting
   - policy URLs: the CNA's disclosure policy
@@ -322,14 +322,14 @@ VULNERABILITY REPORTING USE CASE:
     lookup(type="disclosure", identifier="apple.com")    → Apple's CNA (product-security@apple.com)
     lookup(type="disclosure", identifier="google.com")   → Google's 5 CNA programs (Android, Cloud, Devices, Chrome, main)
   Results include scope (what products are covered), contacts (email/web form), and disclosure policy URLs.
-  486 CVE Numbering Authorities are registered. If no CNA covers the product, MITRE is the CNA of Last Resort:
+  502 CVE Program partners are registered. If no CNA covers the product, MITRE is the CNA of Last Resort:
     lookup(type="disclosure", identifier="mitre.org")    → MITRE CNA-LR for uncovered products
 
 RESPONSE: Same format as resolve — { secid_query, status, results[], message? }
 Results from different sources will have different secid values showing where each match was found.
 Sort by weight descending — highest weight is the most authoritative source.
 
-TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, vulnerability reporting — 486 CNAs with scope, contacts, policy), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
+TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, vulnerability reporting — 502 CVE Program partners with scope, contacts, policy), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
 
 const DESCRIBE_DESCRIPTION = `Get registry metadata about a SecID source, namespace, or type — without resolving a specific item.
 
@@ -343,7 +343,7 @@ EXAMPLES:
   secid:capability/amazon.com/aws   → list all AWS service security capabilities
   secid:capability                  → list all capability namespaces
   secid:disclosure/redhat.com       → list Red Hat's disclosure programs (CNA, CNA-LR, Root)
-  secid:disclosure                  → list all 486 CVE CNA disclosure namespaces
+  secid:disclosure                  → list all 502 CVE Program partner disclosure namespaces
 
 DISCLOSURE / CNA DISCOVERY:
   Use describe with the disclosure type to find vulnerability reporting channels:
@@ -365,7 +365,7 @@ function createMcpServer(
 ): McpServer {
   const server = new McpServer({
     name: "secid",
-    version: "0.2.0",
+    version: "1.0.0",
   });
 
   // ── Tool: resolve ──
@@ -524,7 +524,7 @@ function createMcpServer(
   server.resource(
     "registry",
     "secid://registry",
-    { description: "Full listing of all SecID types and their namespace counts. SecID covers 10 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, bug bounties), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 616+ namespaces total." },
+    { description: "Full listing of all SecID types and their namespace counts. SecID covers 10 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, bug bounties), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 700+ namespaces total." },
     async () => {
       const listing: Record<string, number> = {};
       const ctx = new RegistryContext(registryKv);
