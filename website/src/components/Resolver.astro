@@ -430,6 +430,7 @@
     explorerMode = true;
     explorerPath = [{ label: "Registry", secid: null }];
     output.hidden = false;
+    updateURL(null);
     renderExplorerRoot();
   });
 
@@ -892,6 +893,8 @@
     output.textContent = "";
     output.hidden = false;
     output.classList.remove("explorer-active");
+    updateURL(secid);
+    document.title = `${secid} \u2014 SecID`;
 
     const loadingDiv = document.createElement("div");
     loadingDiv.textContent = "Loading\u2026";
@@ -1090,6 +1093,7 @@
           // Trim path back to this level
           explorerPath = explorerPath.slice(0, targetIndex + 1);
           if (targetIndex === 0) {
+            updateURL(null);
             renderExplorerRoot();
           } else {
             // Re-navigate to this crumb's secid
