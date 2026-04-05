@@ -247,20 +247,28 @@ Multiple results are normal — same resource at different URLs, sorted by weigh
 CROSS-SOURCE SEARCH: Omit namespace to search all sources of that type.
   secid:advisory/CVE-2021-44228 → returns URLs from MITRE, NVD, Red Hat, etc.
 
-VULNERABILITY REPORTING — "Who do I report this to?":
+VULNERABILITY REPORTING — "Who do I report this to?" / "How do I get a CVE?":
   The disclosure type contains 486 CVE Numbering Authority (CNA) programs with:
   - scope: what products/projects each CNA covers
   - contacts: email addresses and web forms for reporting
   - policy URLs: the CNA's disclosure policy
   - program role: CNA, Root, CNA-LR (last resort), Top-Level Root
 
-  To find who handles vulnerabilities for a vendor:
+  WORKFLOW — How to report a vulnerability and get a CVE ID:
+  1. Find the vendor's CNA: secid:disclosure/{vendor-domain}.com
+     → Check the scope field to confirm the product is covered
+     → Use the contact (email or web form) to report the vulnerability
+     → The CNA assigns a CVE ID and coordinates disclosure
+  2. If no CNA covers the product: secid:disclosure/mitre.org/cna-lr
+     → MITRE is the CNA of Last Resort for everything not covered by another CNA
+     → Submit via https://cveform.mitre.org (the CVE ID Request Form)
+  3. If the vendor IS a CNA, report directly to them — they assign their own CVE IDs
+
+  EXAMPLES:
     secid:disclosure/redhat.com     → lists Red Hat's CNA, CNA-LR, and Root programs
     secid:disclosure/apple.com/cna  → Apple's CNA with contact (product-security@apple.com)
     secid:disclosure/cisco.com/cna  → Cisco's CNA with contact and PSIRT link
-
-  To find the CNA of last resort (for products not covered by any specific CNA):
-    secid:disclosure/mitre.org/cna-lr → MITRE's CNA-LR covers everything else
+    secid:disclosure/mitre.org/cna-lr → MITRE's CNA-LR + CVE request form URL
 
   Each CNA result includes a scope field describing exactly what that program covers,
   so you can determine if a specific product falls within their scope.
