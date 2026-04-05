@@ -1,0 +1,124 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Slides — SecID">
+  <section>
+    <h1>Presentations</h1>
+    <p>Slide decks about SecID — what it is, how to use it, and how it integrates with CSA programs.</p>
+
+    <div class="slides-grid">
+      <div class="slide-card">
+        <h2>SecID Overview</h2>
+        <p class="slide-meta">17 slides · 5–10 minutes</p>
+        <p>What SecID is, what v1.0 delivers (709+ namespaces, 428 cloud capabilities, 502 CNA partners), and where v2.0 is headed. For executives, security practitioners, and anyone new to SecID.</p>
+        <div class="slide-actions">
+          <a href="/slides/overview.html" class="btn-primary" target="_blank">View Slides</a>
+          <a href="https://github.com/CloudSecurityAlliance/SecID/raw/main/slides/secid-overview.pdf" class="btn-secondary">Download PDF</a>
+        </div>
+      </div>
+
+      <div class="slide-card">
+        <h2>SecID + CSA Integration</h2>
+        <p class="slide-meta">14 slides · 10–15 minutes</p>
+        <p>How SecID powers CCM, AICM, STAR, CCSK, and cross-framework mapping. For CSA staff building programs and CSA members using them.</p>
+        <div class="slide-actions">
+          <a href="/slides/csa-integration.html" class="btn-primary" target="_blank">View Slides</a>
+          <a href="https://github.com/CloudSecurityAlliance/SecID/raw/main/slides/secid-csa-integration.pdf" class="btn-secondary">Download PDF</a>
+        </div>
+      </div>
+
+      <div class="slide-card upcoming">
+        <h2>Technical Deep Dive</h2>
+        <p class="slide-meta">Coming soon</p>
+        <p>API contract, MCP server, SDK examples, JSON Schema, OpenAPI spec. For developers and integrators building with SecID.</p>
+      </div>
+
+      <div class="slide-card upcoming">
+        <h2>Contributing to SecID</h2>
+        <p class="slide-meta">Coming soon</p>
+        <p>How to add namespaces, capabilities, and sources. Registry file format, templates, PR workflow. For the community.</p>
+      </div>
+    </div>
+  </section>
+</Base>
+
+<style is:global>
+  .slides-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 1.5rem;
+    margin-top: 1.5rem;
+  }
+
+  .slide-card {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+    background: var(--surface);
+    transition: border-color 0.15s;
+  }
+
+  .slide-card:hover {
+    border-color: var(--accent);
+  }
+
+  .slide-card.upcoming {
+    opacity: 0.6;
+  }
+
+  .slide-card h2 {
+    margin: 0 0 0.25rem;
+    font-size: 1.2rem;
+    color: var(--fg);
+  }
+
+  .slide-meta {
+    font-size: 0.8rem;
+    color: var(--fg-muted);
+    margin-bottom: 0.5rem;
+  }
+
+  .slide-card p {
+    font-size: 0.9rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+  }
+
+  .slide-actions {
+    display: flex;
+    gap: 0.75rem;
+    margin-top: 1rem;
+  }
+
+  .btn-primary {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    background: var(--accent);
+    color: #fff;
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .btn-primary:hover {
+    opacity: 0.9;
+  }
+
+  .btn-secondary {
+    display: inline-block;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--accent);
+    color: var(--accent);
+    border-radius: 4px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+  }
+
+  .btn-secondary:hover {
+    background: var(--accent);
+    color: #fff;
+  }
+</style>
