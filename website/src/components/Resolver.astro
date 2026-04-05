@@ -777,28 +777,6 @@
             item.appendChild(urlDiv);
           }
 
-          // Source URL (capability entries often use source instead of urls array)
-          if (d.source && typeof d.source === "string" && d.source.startsWith("http")) {
-            const srcDiv = document.createElement("div");
-            srcDiv.style.marginTop = "0.2rem";
-            const link = document.createElement("a");
-            link.href = d.source as string;
-            link.target = "_blank";
-            link.rel = "noopener";
-            link.style.color = "var(--accent)";
-            link.style.fontSize = "0.8rem";
-            link.style.wordBreak = "break-all";
-            link.textContent = "Documentation";
-            srcDiv.appendChild(link);
-            const urlSpan = document.createElement("span");
-            urlSpan.textContent = ` — ${d.source}`;
-            urlSpan.style.fontSize = "0.75rem";
-            urlSpan.style.color = "var(--fg-muted)";
-            urlSpan.style.wordBreak = "break-all";
-            srcDiv.appendChild(urlSpan);
-            item.appendChild(srcDiv);
-          }
-
           // Audit commands (capability entries)
           if (d.audit && typeof d.audit === "object" && !Array.isArray(d.audit)) {
             const auditDiv = document.createElement("div");

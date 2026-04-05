@@ -33,10 +33,11 @@ export interface ParsedSecID {
 // Mirrors the JSON schema from REGISTRY-JSON-FORMAT.md
 
 export interface RegistryUrl {
-  type: string; // "website", "api", "bulk_data", "lookup"
+  type: string; // "website", "docs", "api", "bulk_data", "lookup", "security", "paper", ...
   url: string;
-  format?: string;
-  note?: string;
+  format?: string; // Expected content format: "html", "json", "pdf", "xml", "csv"
+  note?: string; // Human/AI readable context
+  lang?: string; // ISO 639-1 language code
 }
 
 export interface ExampleObject {
