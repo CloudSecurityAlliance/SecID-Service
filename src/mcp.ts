@@ -267,7 +267,9 @@ VULNERABILITY REPORTING — "Who do I report this to?":
 
 QUERY DEPTH: More specific = URLs, less specific = registry browsing data.
 
-To build an HTTP client instead of using this tool: GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={secid} — encode # as %23 in the query parameter.`;
+To build an HTTP client instead of using this tool: GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={secid} — encode # as %23 in the query parameter.
+
+FEEDBACK: If a namespace is missing, a result is wrong, or you want to request a new source, file an issue at https://github.com/CloudSecurityAlliance/SecID/issues — the registry is open source and contributions are welcome.`;
 
 const LOOKUP_DESCRIPTION = `Search for a security identifier across all sources of a given type.
 
@@ -560,6 +562,50 @@ function createMcpServer(
         uri: "secid://docs/prompt-template",
         mimeType: "text/markdown",
         text: PROMPT_TEMPLATE_DOC,
+      }],
+    })
+  );
+
+  // ── Resource: feedback and support ──
+  server.resource(
+    "docs-feedback",
+    "secid://docs/feedback",
+    { description: "How to report issues, request new namespaces, give feedback, or contribute to the SecID registry. Read this if a query returned not_found for a source that should be covered, or if you found incorrect data." },
+    async () => ({
+      contents: [{
+        uri: "secid://docs/feedback",
+        mimeType: "text/markdown",
+        text: `# SecID Feedback & Support
+
+## Report Issues or Request New Sources
+
+**GitHub Issues:** https://github.com/CloudSecurityAlliance/SecID/issues
+
+Use this to:
+- Request a new namespace (e.g., "please add vendor X's advisory database")
+- Report incorrect data (wrong URLs, outdated contacts, bad patterns)
+- Report a bug in the resolver or MCP server
+- Suggest improvements
+
+## Contributing
+
+The SecID registry is open source. Adding a new source is a single JSON file.
+
+- **Registry repo:** https://github.com/CloudSecurityAlliance/SecID
+- **Service repo:** https://github.com/CloudSecurityAlliance/SecID-Service
+- **How to add a namespace:** https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/guides/ADD-NAMESPACE.md
+
+## Specification
+
+- **SecID spec:** https://github.com/CloudSecurityAlliance/SecID/blob/main/SPEC.md
+- **Registry format:** https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/reference/REGISTRY-JSON-FORMAT.md
+
+## Contact
+
+SecID is a Cloud Security Alliance project.
+- **Website:** https://cloudsecurityalliance.org
+- **Service:** https://secid.cloudsecurityalliance.org
+`,
       }],
     })
   );

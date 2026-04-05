@@ -35,7 +35,7 @@ export function resolve(
 
   const typeRegistry = registry[parsed.type];
   if (!typeRegistry || Object.keys(typeRegistry).length === 0) {
-    return response(query, "not_found", [], `No namespaces registered for type "${parsed.type}".`);
+    return response(query, "not_found", [], `No namespaces registered for type "${parsed.type}". Request one at https://github.com/CloudSecurityAlliance/SecID/issues`);
   }
 
   // Type-only query: list namespaces
@@ -56,7 +56,7 @@ export function resolve(
       query,
       "not_found",
       [],
-      `Namespace "${parsed.namespace}" not found in type "${parsed.type}".`
+      `Namespace "${parsed.namespace}" not found in type "${parsed.type}". Request it at https://github.com/CloudSecurityAlliance/SecID/issues`
     );
   }
 
@@ -630,7 +630,7 @@ function typeScopedSearch(
   }
 
   if (results.length === 0) {
-    return response(query, "not_found", [], `No results found for "${identifier}" in type "${parsed.type}".`);
+    return response(query, "not_found", [], `No results found for "${identifier}" in type "${parsed.type}". If this source should be covered, request it at https://github.com/CloudSecurityAlliance/SecID/issues`);
   }
 
   results.sort((a, b) => {
