@@ -96,6 +96,7 @@ Sources with version_required (like OWASP Top 10) return status "related" with v
     secid:advisory/mitre.org/cve                  → Registry data about CVE
     secid:advisory/mitre.org                      → List of sources from mitre.org
     secid:advisory                                → List of all advisory namespaces
+    secid:disclosure/redhat.com/cna                   → CNA scope, contacts, policy URL
 
 ## Implementation Checklist
 
@@ -143,6 +144,7 @@ Examples:
 - secid:advisory/mitre.org/cve#CVE-2021-44228 (CVE record)
 - secid:weakness/mitre.org/cwe#CWE-79 (CWE weakness)
 - secid:advisory/CVE-2021-44228 (cross-source search)
+- secid:disclosure/redhat.com/cna (Red Hat CNA program — scope, contacts)
 
 ## API Contract
 
@@ -222,6 +224,8 @@ EXAMPLES:
   secid:control/nist.gov/csf@2.0#PR.AC-1       → NIST CSF control
   secid:advisory/mitre.org/cve                  → registry info about CVE as a source
   secid:advisory                                → list all advisory namespaces
+  secid:disclosure/redhat.com/cna                   → Red Hat CNA scope, contacts, policy URL
+  secid:disclosure                                  → list all 486 disclosure namespaces (CVE CNAs)
 
 RESPONSE FORMAT:
   { secid_query, status, results[], message? }
@@ -260,12 +264,14 @@ EXAMPLES:
     → URLs from MITRE CWE
   lookup(type="ttp", identifier="T1059.003")
     → URL from MITRE ATT&CK
+  lookup(type="disclosure", identifier="redhat.com")
+    → Red Hat's CNA, CNA-LR, and Root programs with scopes and contacts
 
 RESPONSE: Same format as resolve — { secid_query, status, results[], message? }
 Results from different sources will have different secid values showing where each match was found.
 Sort by weight descending — highest weight is the most authoritative source.
 
-TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
+TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), disclosure (CVE CNAs, PSIRTs, vulnerability reporting), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
 
 const DESCRIBE_DESCRIPTION = `Get registry metadata about a SecID source, namespace, or type — without resolving a specific item.
 
@@ -276,6 +282,8 @@ EXAMPLES:
   secid:advisory/mitre.org       → list of all sources MITRE publishes (cve, cvelistV5)
   secid:advisory                 → list of all advisory namespaces (mitre.org, nist.gov, redhat.com, ...)
   secid:control                  → list of all control namespaces
+  secid:disclosure/redhat.com       → list Red Hat's disclosure programs (CNA, CNA-LR, Root)
+  secid:disclosure                  → list all 486 CVE CNA disclosure namespaces
 
 If you pass a SecID with a subpath (e.g. secid:advisory/mitre.org/cve#CVE-2024-1234), the subpath is stripped and you get source-level info instead of resolution.
 
@@ -348,7 +356,7 @@ function createMcpServer(
     "lookup",
     LOOKUP_DESCRIPTION,
     {
-      type: z.enum(SECID_TYPES).describe("Security knowledge type: advisory, weakness, ttp, control, regulation, entity, or reference"),
+      type: z.enum(SECID_TYPES).describe("Security knowledge type: advisory, weakness, ttp, control, disclosure, regulation, entity, or reference"),
       identifier: z
         .string()
         .describe("The identifier to search for, e.g. 'CVE-2021-44228', 'CWE-79', 'T1059.003'"),
@@ -450,7 +458,7 @@ function createMcpServer(
   server.resource(
     "registry",
     "secid://registry",
-    { description: "Full listing of all SecID types and their namespace counts. SecID covers 7 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 121 namespaces total." },
+    { description: "Full listing of all SecID types and their namespace counts. SecID covers 8 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), disclosure (CVE CNAs, PSIRTs, bug bounties), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 616 namespaces total." },
     async () => {
       const listing: Record<string, number> = {};
       const ctx = new RegistryContext(registryKv);
