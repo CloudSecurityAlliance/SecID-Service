@@ -430,7 +430,6 @@
     explorerMode = true;
     explorerPath = [{ label: "Registry", secid: null }];
     output.hidden = false;
-    output.classList.add("explorer-active");
     renderExplorerRoot();
   });
 
@@ -858,6 +857,7 @@
   // --- Explorer: root view (7 type cards) ---
   function renderExplorerRoot(): void {
     output.textContent = "";
+    output.classList.add("explorer-active");
     addCloseButton(output);
 
     // Breadcrumbs
@@ -891,6 +891,7 @@
     explorerPath.push({ label, secid });
     output.textContent = "";
     output.hidden = false;
+    output.classList.remove("explorer-active");
 
     const loadingDiv = document.createElement("div");
     loadingDiv.textContent = "Loading\u2026";
