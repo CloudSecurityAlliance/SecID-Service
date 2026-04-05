@@ -761,6 +761,22 @@
             }
           }
 
+          // Bare url field (single string — used by match nodes for resolution)
+          if (d.url && typeof d.url === "string" && !d.urls?.length) {
+            const urlDiv = document.createElement("div");
+            urlDiv.style.marginTop = "0.2rem";
+            const link = document.createElement("a");
+            link.href = d.url as string;
+            link.target = "_blank";
+            link.rel = "noopener";
+            link.style.color = "var(--accent)";
+            link.style.fontSize = "0.8rem";
+            link.style.wordBreak = "break-all";
+            link.textContent = d.url as string;
+            urlDiv.appendChild(link);
+            item.appendChild(urlDiv);
+          }
+
           // Source URL (capability entries often use source instead of urls array)
           if (d.source && typeof d.source === "string" && d.source.startsWith("http")) {
             const srcDiv = document.createElement("div");
