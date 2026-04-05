@@ -262,3 +262,29 @@ Sequential log of decisions for SecID-Service.
 - Keep app-layer hard limits (e.g., query/body length) in place even with edge controls.
 
 **Residual risk:** Misconfigured edge rules can under-block or over-block. Monitor and tune continuously.
+
+---
+
+## ADR-013: Website build versioning via commit SHA
+
+**Date:** 2026-04-05
+**Status:** Accepted
+**Decision method:** Collaborative
+
+**Goal:** Show a traceable build identifier on the website that links to the exact source commit.
+
+**Context:** The website footer displays "Service build: {hash}" linking to the GitHub commit. The build system uses an environment variable (`PUBLIC_COMMIT_SHA`) injected at Astro build time. When the variable is missing (local dev, CI that skips the website build step), it falls back to "dev" — which produced a broken link (`/commit/dev` is a GitHub 404).
+
+**Decision:** Use a 12-character short git commit SHA as the build identifier, injected via `PUBLIC_COMMIT_SHA` at website build time. The canonical build command is `npm run build:website` from the repo root, which chains `git rev-parse --short=12 HEAD` into the Astro build. CI must run this step before `wrangler deploy`. When the SHA is the "dev" fallback, render it as plain text (no link) to avoid broken URLs.
+
+**How it works:**
+
+1. `package.json` script: `"build:website"` runs `git rev-parse --short=12 HEAD`, exports it as `PUBLIC_COMMIT_SHA`, then runs the Astro build.
+2. `Base.astro` reads `process.env.PUBLIC_COMMIT_SHA ?? "dev"` at build time (Astro SSG bakes it into static HTML).
+3. If the value is a real SHA, the footer links to `https://github.com/CloudSecurityAlliance/SecID-Service/commit/{sha}`.
+4. If the value is "dev", the footer shows `dev` as plain text with no link.
+5. The CI workflow (`registry-kv-upload.yml`) runs `npm run build:website` before `wrangler deploy` to ensure production always has a real SHA.
+
+**Rationale:** A commit SHA is the simplest traceable identifier — it tells you exactly what code is running. 12 characters is short enough for display but long enough to be unambiguous. Linking to the GitHub commit gives one-click access to the diff. The "dev" fallback gracefully handles local development without broken UI.
+
+**Why not a version number or tag?** The website is rebuilt on every registry update (not just code changes), so semantic versions would require a release process that doesn't match the deployment cadence. The commit SHA is always available and always unique.

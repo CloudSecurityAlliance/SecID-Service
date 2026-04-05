@@ -8,7 +8,8 @@ interface Props {
 
 const { title, description = "A universal grammar for referencing security knowledge" } = Astro.props;
 const commitSha = process.env.PUBLIC_COMMIT_SHA ?? "dev";
-const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit/${commitSha}`;
+const isDevBuild = commitSha === "dev";
+const commitUrl = isDevBuild ? null : `https://github.com/CloudSecurityAlliance/SecID-Service/commit/${commitSha}`;
 ---
 
 <!doctype html>
@@ -28,6 +29,28 @@ const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content={title} />
     <meta name="twitter:description" content={description} />
+    <meta name="author" content="Kurt Seifried" />
+    <script type="application/ld+json" set:html={JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "SecID",
+      "url": "https://secid.cloudsecurityalliance.org/",
+      "author": {
+        "@type": "Person",
+        "name": "Kurt Seifried",
+        "jobTitle": "Chief Innovation Officer",
+        "worksFor": {
+          "@type": "Organization",
+          "name": "Cloud Security Alliance",
+          "url": "https://cloudsecurityalliance.org"
+        }
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Cloud Security Alliance",
+        "url": "https://cloudsecurityalliance.org"
+      }
+    })} />
     <style is:global>
       :root {
         --font-sans: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
@@ -91,6 +114,9 @@ const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit
             <img src="/csa-logo.jpeg" alt="Cloud Security Alliance" class="nav-logo" />
             SecID
           </a>
+          <div class="nav-author">
+            By <strong>Kurt Seifried</strong>, Chief Innovation Officer — <a href="https://cloudsecurityalliance.org" target="_blank" rel="noopener">Cloud Security Alliance</a>
+          </div>
           <div class="nav-links">
             <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Spec &amp; Registry</a>
             <a href="https://github.com/CloudSecurityAlliance/SecID-Service" target="_blank" rel="noopener">API Source</a>
@@ -106,8 +132,12 @@ const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit
     </main>
     <footer>
       <div class="container">
-        <p>SecID is a <a href="https://cloudsecurityalliance.org" target="_blank" rel="noopener">Cloud Security Alliance</a> project. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contribute on GitHub</a>.</p>
-        <p class="build-version">Service build: <a href={commitUrl} target="_blank" rel="noopener"><code>{commitSha}</code></a></p>
+        <p>SecID is a <a href="https://cloudsecurityalliance.org" target="_blank" rel="noopener">Cloud Security Alliance</a> project by <strong>Kurt Seifried</strong>, Chief Innovation Officer. <a href="https://github.com/CloudSecurityAlliance/SecID" target="_blank" rel="noopener">Contribute on GitHub</a>.</p>
+        {isDevBuild ? (
+          <p class="build-version">Service build: <code>dev</code></p>
+        ) : (
+          <p class="build-version">Service build: <a href={commitUrl} target="_blank" rel="noopener"><code>{commitSha}</code></a></p>
+        )}
       </div>
     </footer>
     <style>
@@ -135,6 +165,16 @@ const commitUrl = `https://github.com/CloudSecurityAlliance/SecID-Service/commit
       .nav-logo {
         height: 48px;
         width: auto;
+      }
+      .nav-author {
+        font-size: 0.85rem;
+        color: var(--fg-muted);
+      }
+      .nav-author a {
+        color: var(--fg-muted);
+      }
+      .nav-author a:hover {
+        color: var(--accent);
       }
       .nav-links {
         display: flex;
