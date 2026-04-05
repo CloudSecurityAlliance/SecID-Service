@@ -678,12 +678,13 @@ function toRegExp(pat: string): RegExp {
 
 function extractNameSlug(node: MatchNode): string {
   // Extract a human-readable name from the first pattern
-  // Patterns like "(?i)^cve$" → "cve"
+  // Patterns like "(?i)^cve$" → "cve", "(?i)^cna\-tlr$" → "cna-tlr"
   const pat = node.patterns[0] ?? "";
   const cleaned = pat
     .replace(/^\(\?i\)/i, "")
     .replace(/^\^/, "")
-    .replace(/\$$/, "");
+    .replace(/\$$/, "")
+    .replace(/\\(.)/g, "$1");  // Unescape: \- → -, \. → .
   // If it's a simple literal (no regex meta), use it
   if (/^[\w-]+$/.test(cleaned)) {
     return cleaned.toLowerCase();

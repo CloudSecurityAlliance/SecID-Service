@@ -119,7 +119,8 @@ function extractNameSlug(node: MatchNodeRaw): string {
   const cleaned = pat
     .replace(/^\(\?i\)/i, "")
     .replace(/^\^/, "")
-    .replace(/\$$/, "");
+    .replace(/\$$/, "")
+    .replace(/\\(.)/g, "$1");  // Unescape: \- → -, \. → .
   if (/^[\w-]+$/.test(cleaned)) {
     return cleaned.toLowerCase();
   }
