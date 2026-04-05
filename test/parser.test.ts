@@ -48,6 +48,13 @@ describe("parseSecID", () => {
     });
   });
 
+  describe("capability type", () => {
+    it("parses capability type", () => {
+      const r = parseSecID("secid:capability/amazon.com/aws/s3", REGISTRY);
+      expect(r.type).toBe("capability");
+    });
+  });
+
   describe("progressive depth", () => {
     it("parses type-only", () => {
       const r = parseSecID("secid:advisory", REGISTRY);
