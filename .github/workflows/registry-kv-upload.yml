@@ -27,6 +27,9 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Build website
+        run: npm run build:website
+
       - name: Run tests
         run: npx vitest run
 
@@ -34,9 +37,6 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
         run: npx tsx scripts/upload-registry-kv.ts ./secid-spec
-
-      - name: Build website
-        run: npm run build:website
 
       - name: Deploy Worker
         env:
