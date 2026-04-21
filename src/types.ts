@@ -80,6 +80,10 @@ export interface MatchNodeData {
   url?: string;
   format?: string;
   content_type?: string; // MIME type from HTTP Content-Type header
+  parsability?: string;  // "structured" or "scraped"
+  schema?: string;       // SecID reference to data schema
+  parsing_instructions?: string; // SecID reference to parsing instruction doc
+  auth?: string;         // Free-text auth description
   lang?: LangConfig;     // Language availability and URL substitution config
   type?: string;
   note?: string;
@@ -207,6 +211,10 @@ export interface ResolutionResult {
   url: string;
   content_type?: string; // MIME type of the resource at the URL
   lang?: string;         // Language code of the resolved result
+  parsability?: string;  // "structured" or "scraped"
+  schema?: string;       // SecID reference to data schema
+  parsing_instructions?: string; // SecID reference to parsing instruction doc
+  auth?: string;         // Free-text auth description
 }
 
 export interface RegistryResult {

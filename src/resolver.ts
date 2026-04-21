@@ -6,6 +6,7 @@ import type {
   ResolutionResult,
   ResolveResponse,
   MatchNode,
+  MatchNodeData,
   VariableDefinition,
   LookupTableEntry,
   ResultEntry,
@@ -371,6 +372,7 @@ function matchChildrenAndResolve(
     if (url) {
       const res: ResolutionResult = { secid, weight: child.weight, url };
       if (child.data.content_type) res.content_type = child.data.content_type;
+      addFormatMetadata(res, child.data);
 
       // Set lang on result
       if (child.data.lang) {
@@ -388,6 +390,7 @@ function matchChildrenAndResolve(
         const lookupUrl = typeof entry === "string" ? entry : entry.url;
         const res: ResolutionResult = { secid, weight: child.weight, url: lookupUrl };
         if (child.data.content_type) res.content_type = child.data.content_type;
+        addFormatMetadata(res, child.data);
         results.push(res);
       } else {
         // Return the lookup_table as registry data
@@ -571,6 +574,7 @@ function namespaceScopedSearch(
       if (url) {
         const res: ResolutionResult = { secid, weight: child.weight, url };
         if (child.data.content_type) res.content_type = child.data.content_type;
+        addFormatMetadata(res, child.data);
         results.push(res);
       } else {
         results.push({
@@ -618,6 +622,7 @@ function typeScopedSearch(
         if (url) {
           const res: ResolutionResult = { secid, weight: child.weight, url };
           if (child.data.content_type) res.content_type = child.data.content_type;
+          addFormatMetadata(res, child.data);
           results.push(res);
         } else {
           results.push({
@@ -644,6 +649,14 @@ function typeScopedSearch(
 }
 
 // ── Helpers ──
+
+/** Copy format metadata fields from registry data onto a resolution result. */
+function addFormatMetadata(res: ResolutionResult, data: MatchNodeData): void {
+  if (data.parsability) res.parsability = data.parsability;
+  if (data.schema) res.schema = data.schema;
+  if (data.parsing_instructions) res.parsing_instructions = data.parsing_instructions;
+  if (data.auth) res.auth = data.auth;
+}
 
 function findMatchingNode(
   nodes: MatchNode[],
@@ -707,6 +720,15 @@ function applyQualifierFilters(
     filtered = filtered.filter((r) => {
       if (!("url" in r)) return true; // Keep RegistryResults (metadata)
       return (r as ResolutionResult).content_type === target;
+    });
+  }
+
+  // parsability filter
+  if (qualifiers.parsability) {
+    const target = qualifiers.parsability;
+    filtered = filtered.filter((r) => {
+      if (!("url" in r)) return true; // Keep RegistryResults (metadata)
+      return (r as ResolutionResult).parsability === target;
     });
   }
 
