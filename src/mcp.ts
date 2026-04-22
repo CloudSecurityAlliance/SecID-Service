@@ -244,6 +244,14 @@ TWO RESULT TYPES (check which fields are present):
 WEIGHTS: 100=authoritative primary, 80=high-quality secondary, 50=alternative/indirect.
 Multiple results are normal — same resource at different URLs, sorted by weight descending.
 
+FORMAT METADATA: Resolution results may include optional fields describing what you get at the URL:
+  - parsability: "structured" (machine-readable with defined schema) or "scraped" (HTML/unstructured)
+  - schema: SecID reference to the data schema (e.g., secid:reference/cve.org/cve-schema@5.2.0)
+  - parsing_instructions: SecID reference to a parsing guide document
+  - auth: how to access the URL (e.g., "none", "GitHub token for higher rate limits")
+  - content_type: MIME type (e.g., "application/json", "text/html")
+Use ?parsability=structured to filter for only machine-readable results.
+
 CROSS-SOURCE SEARCH: Omit namespace to search all sources of that type.
   secid:advisory/CVE-2021-44228 → returns URLs from MITRE, NVD, Red Hat, etc.
 
