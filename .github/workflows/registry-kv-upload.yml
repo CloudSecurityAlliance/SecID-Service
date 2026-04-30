@@ -39,10 +39,10 @@ jobs:
       - name: Run tests
         run: npx vitest run
 
-      - name: Upload registry to KV
+      - name: Upload registry to KV (sync mode — also deletes orphans)
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.SECID_SERVICE_DEPLOY }}
-        run: npx tsx scripts/upload-registry-kv.ts ./secid-spec
+        run: npx tsx scripts/upload-registry-kv.ts --sync ./secid-spec
 
       - name: Deploy Worker
         env:

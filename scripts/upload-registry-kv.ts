@@ -1,5 +1,5 @@
 /**
- * Upload registry data to Cloudflare KV.
+ * Upload (and optionally sync) registry data to Cloudflare KV.
  *
  * Reads all JSON registry files and writes:
  *   - secid:{type}/{namespace}  — raw namespace JSON (×121)
@@ -8,7 +8,19 @@
  *   - secid:registry            — complete compiled Registry (×1)
  *   - secid:meta                — version/counts metadata (×1)
  *
- * Usage: npx tsx scripts/upload-registry-kv.ts [--preview] [path-to-secid-repo]
+ * Usage:
+ *   npx tsx scripts/upload-registry-kv.ts [path-to-secid-repo]
+ *     Default mode: upload all expected keys (overwrites existing values).
+ *     Does NOT delete keys that are no longer in the registry.
+ *
+ *   npx tsx scripts/upload-registry-kv.ts --sync [path-to-secid-repo]
+ *     Sync mode: upload all expected keys AND delete orphans (keys in KV
+ *     that are no longer produced by the registry). After this runs, KV
+ *     exactly matches what the registry would produce.
+ *
+ *   --dry-run    Show what would happen without making any changes.
+ *   --preview    Use the preview KV namespace instead of production.
+ *   --force      Override the orphan deletion safety threshold (50 keys).
  */
 
 import { readFileSync, writeFileSync, mkdirSync, rmSync, readdirSync, statSync } from "fs";
@@ -23,6 +35,9 @@ const __dirname = dirname(__filename);
 // Parse arguments
 const args = process.argv.slice(2);
 const preview = args.includes("--preview");
+const sync = args.includes("--sync");
+const dryRun = args.includes("--dry-run");
+const force = args.includes("--force");
 const nonFlags = args.filter((a) => !a.startsWith("--"));
 const secidRepo =
   nonFlags[0] || join(homedir(), "GitHub", "CloudSecurityAlliance", "SecID");
@@ -31,6 +46,7 @@ const registryDir = join(secidRepo, "registry");
 const PRODUCTION_NS_ID = "cfbc271787614516a39fa43d9ca4f95a";
 const PREVIEW_NS_ID = "bda410b73cc34b468c84bf2dc9fba45f";
 const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value size)
+const ORPHAN_DELETE_THRESHOLD = 50; // refuse to delete more than this without --force
 
 interface RegistryFile {
   namespace: string;
@@ -334,7 +350,118 @@ function upload(entries: BulkEntry[]): void {
   );
 }
 
+// ── Find Orphans ──
+
+function findOrphans(expectedKeys: Set<string>, namespaceId: string): string[] {
+  console.log("\nListing KV keys to find orphans...");
+
+  // wrangler logs go to stderr; data goes to stdout. Suppress stderr to get clean JSON.
+  const output = execFileSync(
+    "npx",
+    ["wrangler", "kv", "key", "list", "--namespace-id", namespaceId, "--remote"],
+    {
+      cwd: join(__dirname, ".."),
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "ignore"],
+      maxBuffer: 64 * 1024 * 1024, // 64 MiB — KV namespaces can have many keys
+    }
+  );
+
+  let actualKeys: string[];
+  try {
+    const parsed = JSON.parse(output) as Array<{ name: string }>;
+    actualKeys = parsed.map((k) => k.name);
+  } catch (e) {
+    throw new Error(
+      `Failed to parse 'wrangler kv key list' output as JSON. First 200 chars: ${output.slice(0, 200)}`
+    );
+  }
+
+  console.log(`KV has ${actualKeys.length} keys; expected ${expectedKeys.size} from registry.`);
+
+  return actualKeys.filter((k) => !expectedKeys.has(k)).sort();
+}
+
+// ── Delete Orphans ──
+
+function deleteOrphans(orphans: string[], namespaceId: string): void {
+  const tmpDir = join(__dirname, "../.tmp");
+  mkdirSync(tmpDir, { recursive: true });
+
+  const BATCH_SIZE = 100;
+  for (let i = 0; i < orphans.length; i += BATCH_SIZE) {
+    const batch = orphans.slice(i, i + BATCH_SIZE);
+    const tmpFile = join(tmpDir, `kv-delete-batch-${i}.json`);
+    // wrangler kv bulk delete accepts a JSON array of key name strings
+    writeFileSync(tmpFile, JSON.stringify(batch), "utf-8");
+
+    console.log(
+      `Deleting batch ${Math.floor(i / BATCH_SIZE) + 1}/${Math.ceil(orphans.length / BATCH_SIZE)} (${batch.length} keys)...`
+    );
+    execFileSync(
+      "npx",
+      [
+        "wrangler",
+        "kv",
+        "bulk",
+        "delete",
+        tmpFile,
+        "--namespace-id",
+        namespaceId,
+        "--remote",
+      ],
+      { cwd: join(__dirname, ".."), stdio: "inherit" }
+    );
+  }
+
+  rmSync(tmpDir, { recursive: true, force: true });
+  console.log(`Deleted ${orphans.length} orphan keys.`);
+}
+
 // ── Main ──
 
 const entries = buildEntries();
-upload(entries);
+const namespaceId = preview ? PREVIEW_NS_ID : PRODUCTION_NS_ID;
+
+if (sync) {
+  // Sync mode: find orphans first (snapshot before any mutation), then upload, then delete orphans.
+  const expectedKeys = new Set(entries.map((e) => e.key));
+  const orphans = findOrphans(expectedKeys, namespaceId);
+
+  if (orphans.length === 0) {
+    console.log("\nNo orphan keys found — KV key set matches registry.");
+  } else {
+    console.log(`\nFound ${orphans.length} orphan keys (in KV, not in registry):`);
+    for (const k of orphans) console.log(`  - ${k}`);
+
+    if (orphans.length > ORPHAN_DELETE_THRESHOLD && !force) {
+      console.error(
+        `\nERROR: Refusing to delete ${orphans.length} keys (threshold ${ORPHAN_DELETE_THRESHOLD}).\n` +
+          `  Large orphan counts often indicate the registry didn't load correctly.\n` +
+          `  Investigate first. To override, re-run with --force.`
+      );
+      process.exit(1);
+    }
+  }
+
+  if (dryRun) {
+    console.log(
+      `\n[DRY RUN] Would upload ${entries.length} keys and delete ${orphans.length} orphans. No changes made.`
+    );
+    process.exit(0);
+  }
+
+  upload(entries);
+
+  if (orphans.length > 0) {
+    deleteOrphans(orphans, namespaceId);
+  }
+} else {
+  if (dryRun) {
+    console.log(
+      `[DRY RUN] Would upload ${entries.length} keys. (Use --sync --dry-run to also report orphans.) No changes made.`
+    );
+    process.exit(0);
+  }
+  upload(entries);
+}
