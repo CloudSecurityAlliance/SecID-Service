@@ -1,3 +1,10 @@
+```
+project_tracker_base: CINO Project Tracker:appf7fRQUvY9Iy7sL
+project_tracker_table: Projects:tblchmbxSAavvJKaY
+project_tracker_record: SecID-Service:recJ2sF2CudDqTJRN
+project_source: github:CloudSecurityAlliance-Internal/CINO-Projects/projects/SecID-Service
+```
+
 # SecID-Service
 
 REST API and MCP server for resolving security identifiers to URLs. A [Cloud Security Alliance](https://cloudsecurityalliance.org) project by Kurt Seifried, Chief Innovation Officer.
@@ -12,7 +19,7 @@ Add SecID to your AI assistant as a remote MCP server:
 https://secid.cloudsecurityalliance.org/mcp
 ```
 
-That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers. Your AI assistant gets three tools (`resolve`, `lookup`, `describe`) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 700+ other security knowledge sources.
+That's it. No API keys, no local install, no configuration. Works with Claude Desktop, Claude Code, Cursor, Windsurf, and any MCP client that supports remote servers. Your AI assistant gets three tools (`resolve`, `lookup`, `describe`) and can immediately look up CVEs, CWEs, ATT&CK techniques, NIST controls, and 724 other security knowledge sources.
 
 **Other ways to use SecID:** [Claude Code plugin](https://github.com/CloudSecurityAlliance/SecID/tree/main/plugins/secid) (local MCP server, supports internal resolvers) | [Client SDKs](https://github.com/CloudSecurityAlliance/SecID-Client-SDK) (Python, TypeScript, Go) | REST API (below)
 
