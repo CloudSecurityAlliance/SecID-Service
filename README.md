@@ -75,6 +75,15 @@ Today SecID-Service runs only at `secid.cloudsecurityalliance.org/mcp` (anonymou
 
 SecID is the likely first test of the two-shapes pattern because it already exists as a working standalone Worker. The refactor is to lift the tool *logic* (the resolve / lookup / describe data work — currently in `src/mcp.ts`) into a shared package that both this Worker's `mcp.ts` AND a new front-door plugin package import. Standalone keeps anonymous access; front door adds Auth0 on top. A SecID-specific ADR (forthcoming, will live here in this repo's DECISIONS.md or DECISIONS-ADR.md) will document the concrete refactor steps when work starts.
 
+**The umbrella SecID will join:**
+
+| Repo | Role |
+|---|---|
+| [CSA-MCP-Server](https://github.com/CloudSecurityAlliance-Internal/CSA-MCP-Server) | The front-door composition — deploys to `cloudsecurityalliance.org/mcp`. Will import SecID's plugin form alongside the Search plugin. |
+| [CSA-MCP-Core](https://github.com/CloudSecurityAlliance-Internal/CSA-MCP-Core) | Shared infrastructure library — auth, rate limits, observability, MCP protocol plumbing. SecID's plugin form will import this; standalone SecID may also adopt it incrementally for DRY observability/safety helpers. |
+| [CSA-Search-2.0](https://github.com/CloudSecurityAlliance-Internal/CSA-Search-2.0) | First non-platform plugin (search / ask / get_artifact). The pattern SecID's plugin form will follow. |
+| [CINO-Products / csa-mcp-server](https://github.com/CloudSecurityAlliance-Internal/CINO-Products/tree/main/products/csa-mcp-server) | Product-level umbrella — strategic positioning, capability roadmap. |
+
 This is forward-looking — no code change today, just signal that the repo's role is broadening.
 
 ## Development
