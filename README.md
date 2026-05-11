@@ -69,6 +69,14 @@ No authentication. CORS enabled.
 - **Registry:** Compiled from [SecID](https://github.com/CloudSecurityAlliance/SecID) registry JSON files (700+ namespaces, 10 types)
 - **Website:** Astro static site served from the same Worker
 
+## Planned: also runs under the CSA MCP Server front door
+
+Today SecID-Service runs only at `secid.cloudsecurityalliance.org/mcp` (anonymous, no auth — the friction-free public utility). Per [CSA-MCP-Server ADR-002](https://github.com/CloudSecurityAlliance-Internal/CSA-MCP-Server/blob/main/DECISIONS.md#adr-002-federation-strategy--monolith-composition-now-service-bindings-later-dual-shape-capabilities-with-two-welcome-variants), every capability ships in two shapes — a standalone deploy (this Worker, unchanged) AND a plugin form consumed by [CSA-MCP-Server](https://github.com/CloudSecurityAlliance-Internal/CSA-MCP-Server) at `cloudsecurityalliance.org/mcp` (Auth0-gated, alongside Search and future Working Groups / Training / Navigator).
+
+SecID is the likely first test of the two-shapes pattern because it already exists as a working standalone Worker. The refactor is to lift the tool *logic* (the resolve / lookup / describe data work — currently in `src/mcp.ts`) into a shared package that both this Worker's `mcp.ts` AND a new front-door plugin package import. Standalone keeps anonymous access; front door adds Auth0 on top. A SecID-specific ADR (forthcoming, will live here in this repo's DECISIONS.md or DECISIONS-ADR.md) will document the concrete refactor steps when work starts.
+
+This is forward-looking — no code change today, just signal that the repo's role is broadening.
+
 ## Development
 
 ```bash
