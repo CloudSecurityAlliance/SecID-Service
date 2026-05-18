@@ -4,4 +4,4 @@ Friction log for SecID-Service. Each entry is work that shouldn't be as hard as 
 
 | ID | Title | Status | Type | Date |
 |----|-------|--------|------|------|
-| [FRICTION-001](FRICTION/FRICTION-001.md) | KV deploy chain blocked | Open | Process overhead | 2026-04-30 |
+| [FRICTION-001](FRICTION/FRICTION-001.md) | KV deploy chain blocked | Resolved 2026-05-13 | Process overhead | 2026-04-30 |

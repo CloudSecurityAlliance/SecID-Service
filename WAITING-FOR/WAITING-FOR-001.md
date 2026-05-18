@@ -1,9 +1,20 @@
 # WAITING-FOR-001: Registry content propagation to live KV
 
-**Status:** Open
+**Status:** Resolved
 **Date identified:** 2026-04-30
-**Date resolved:** —
+**Date resolved:** 2026-05-13 (verified working)
 **Type:** Decision
+
+## Resolution
+
+Deploy chain verified healthy on 2026-05-13. Recent successful runs of "Notify registry update" (SecID) and "Upload registry to KV" (SecID-Service) — chain operating normally and registry content reaching the live resolver. Verification commands documented in [SecID/CLAUDE.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/CLAUDE.md#cicd).
+
+Live resolves confirm recent merges are propagating end-to-end:
+- `secid:control/iso.org/27017` — ISO 27017:2015 entry (merged 2026-05-10) returns full data
+- `secid:control/aicpa.org/tsc#CC6.1` — AICPA TSC entry (merged 2026-05-13) returns CC group data
+- `secid:disclosure/silabs.com/cna` — overlay-injected `_broken_*` annotations (from PR #4 work) present in response
+
+The registry has grown from ~700 namespaces at the time this WAITING-FOR was filed to 1,151 namespaces as of 2026-05-17, all propagated cleanly.
 
 ## Waiting for
 

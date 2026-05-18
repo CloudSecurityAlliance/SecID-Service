@@ -4,4 +4,4 @@ Strategic-waiting log for SecID-Service. Each entry has a specific trigger that 
 
 | ID | Title | Status | Type | Date |
 |----|-------|--------|------|------|
-| [WAITING-FOR-001](WAITING-FOR/WAITING-FOR-001.md) | Registry content propagation to live KV | Open | Decision | 2026-04-30 |
+| [WAITING-FOR-001](WAITING-FOR/WAITING-FOR-001.md) | Registry content propagation to live KV | Resolved 2026-05-13 | Decision | 2026-04-30 |

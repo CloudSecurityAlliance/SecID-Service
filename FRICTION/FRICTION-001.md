@@ -1,9 +1,30 @@
 # FRICTION-001: KV deploy chain blocked
 
-**Status:** Open
+**Status:** Resolved
 **Date identified:** 2026-04-30
-**Date resolved:** —
+**Date resolved:** 2026-05-13 (verified healthy)
 **Type:** Process overhead
+
+## Resolution
+
+The deploy chain is verified healthy as of 2026-05-13. Both stages now run successfully:
+
+- **Stage 1** (`Notify registry update` on SecID): 5+ successful runs 2026-05-12 through 2026-05-14
+- **Stage 2** (`Upload registry to KV` on SecID-Service): 8+ successful runs in the same window, all firing as `registry-updated` dispatches
+
+End-to-end verification on 2026-05-13:
+- `secid:control/iso.org/27017` (merged 2026-05-10) — live with full data
+- `secid:control/aicpa.org/tsc#CC6.1` (merged 2026-05-13) — live with descriptive group data
+- `secid:disclosure/silabs.com/cna` — overlay-injected `_broken_*` annotations from PR #4 present in response
+
+Registry has grown from ~700 namespaces (at time of friction filing) to 1,151 as of 2026-05-17, all propagated cleanly. Verification commands are documented in [SecID/CLAUDE.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/CLAUDE.md#cicd) so future friction recurrences can be diagnosed faster.
+
+Specific fix path that resolved Stage 1 + Stage 2 is not captured here in detail (predates this update); see git history of `.github/workflows/` and any recent token-rotation work.
+
+---
+
+## Original description (preserved as record)
+
 
 ## Description
 

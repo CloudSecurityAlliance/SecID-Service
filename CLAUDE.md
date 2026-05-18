@@ -65,7 +65,7 @@ npx tsx scripts/upload-registry-kv.ts --sync /path/to/SecID            # apply
 - **Account:** `f3898058ae0b4c20c692bbfa5b9b44b0` (Kseifried@cloudsecurityalliance.org's Account)
 - **Worker route:** `secid.cloudsecurityalliance.org/*` (zone `cloudsecurityalliance.org`)
 - **KV namespaces:**
-  - `secid_REGISTRY` (id `cfbc271787614516a39fa43d9ca4f95a`) — registry data, ~700+ keys
+  - `secid_REGISTRY` (id `cfbc271787614516a39fa43d9ca4f95a`) — registry data, ~1,150 keys
   - `secid_OBSERVABILITY` (id `c5cbc52b9a724433b3043efdf31857f4`) — error logging
 
 ## Deploy Chain
