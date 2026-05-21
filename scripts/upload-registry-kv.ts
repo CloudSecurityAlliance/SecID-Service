@@ -212,12 +212,27 @@ function buildEntries(): BulkEntry[] {
   for (const type of types) {
     const namespaces = Object.entries(registry[type])
       .sort(([a], [b]) => a.localeCompare(b))
-      .map(([ns, data]) => ({
-        namespace: ns,
-        official_name: data.official_name,
-        common_name: data.common_name,
-        source_count: data.match_nodes?.length ?? 0,
-      }));
+      .map(([ns, data]) => {
+        // Union of subtype values across all source-level match_nodes in this
+        // namespace. Included in the TypeIndex so /api/v1/resolve type-only
+        // queries can filter without re-fetching each namespace's full data.
+        const subtypes = new Set<string>();
+        for (const node of data.match_nodes ?? []) {
+          const raw = (node.data as Record<string, unknown> | undefined)?.subtype;
+          if (Array.isArray(raw)) {
+            for (const v of raw) if (typeof v === "string") subtypes.add(v);
+          } else if (typeof raw === "string") {
+            subtypes.add(raw);
+          }
+        }
+        return {
+          namespace: ns,
+          official_name: data.official_name,
+          common_name: data.common_name,
+          source_count: data.match_nodes?.length ?? 0,
+          subtypes: [...subtypes].sort(),
+        };
+      });
 
     typeCounts[type] = namespaces.length;
 
@@ -274,19 +289,36 @@ function buildEntries(): BulkEntry[] {
     });
   }
 
-  // secid:* — GlobalIndex: combined child_index across all types for bare identifier search
-  const globalChildIndex: Array<ChildIndexEntry & { type: string }> = [];
+  // secid:* — GlobalIndex: combined index across all types for bare identifier search.
+  // Indexes BOTH source-level patterns (so "cwe" finds weakness/mitre.org/cwe) AND
+  // child-level patterns (so "CVE-2021-44228" finds the specific record). Entries
+  // carry a `level` discriminator so the resolver can build the right ParsedSecID:
+  //   - level: "source" → fully-qualified resolution to that source's match_node
+  //   - level: "child"  → cross-source item lookup
+  const globalChildIndex: Array<ChildIndexEntry & { type: string; level: "source" | "child" }> = [];
   for (const type of types) {
     for (const [ns, data] of Object.entries(registry[type])) {
       if (!data.match_nodes) continue;
       for (const node of data.match_nodes) {
         const nameSlug = extractNameSlug(node);
+        // Source-level entry — match_node's own patterns (e.g., "(?i)^cwe$").
+        globalChildIndex.push({
+          type,
+          namespace: ns,
+          name_slug: nameSlug,
+          level: "source",
+          patterns: node.patterns,
+          description: node.description,
+          weight: node.weight ?? 100,
+          has_url: !!node.data?.url,
+        });
         if (!node.children) continue;
         for (const child of node.children) {
           globalChildIndex.push({
             type,
             namespace: ns,
             name_slug: nameSlug,
+            level: "child",
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,

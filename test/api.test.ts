@@ -107,6 +107,55 @@ describe("REST API", () => {
       };
       expect(body.status).toBe("found");
     });
+
+    it("?subtype= filters the namespace listing for a bare-type query", async () => {
+      // First request — no filter, get the full set. Type-only queries return
+      // a single wrapper result with data.namespaces[] nested inside.
+      const full = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology"
+      );
+      const fullBody = (await full.json()) as {
+        results: Array<{ data: { namespaces?: Array<{ namespace: string; subtypes?: string[] }> } }>;
+      };
+      const fullNamespaces = fullBody.results[0]?.data?.namespaces;
+      expect(Array.isArray(fullNamespaces)).toBe(true);
+      expect(fullNamespaces!.length).toBeGreaterThan(0);
+      // Every namespace entry should carry a subtypes array
+      expect(fullNamespaces![0].subtypes).toBeDefined();
+
+      // Now apply ?subtype=scoring and confirm filtering happens
+      const filtered = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology&subtype=scoring"
+      );
+      const filteredBody = (await filtered.json()) as {
+        results: Array<{ data: { namespaces?: Array<{ namespace: string; subtypes?: string[] }> } }>;
+        filter?: { subtype?: string; total_before_filter?: number };
+      };
+      // Filter metadata returned
+      expect(filteredBody.filter?.subtype).toBe("scoring");
+      expect(filteredBody.filter?.total_before_filter).toBe(fullNamespaces!.length);
+      const filteredNamespaces = filteredBody.results[0]?.data?.namespaces;
+      expect(filteredNamespaces!.length).toBeGreaterThan(0);
+      expect(filteredNamespaces!.length).toBeLessThan(fullNamespaces!.length);
+      // Every remaining namespace must include "scoring" in its subtypes
+      for (const n of filteredNamespaces!) {
+        expect(n.subtypes).toContain("scoring");
+      }
+    });
+
+    it("?subtype=nonexistent returns empty results with a helpful message", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology&subtype=does-not-exist-xyzzy"
+      );
+      const body = (await res.json()) as {
+        results: Array<{ data: { namespaces?: unknown[] } }>;
+        filter?: { subtype?: string };
+        message?: string;
+      };
+      expect(body.results[0]?.data?.namespaces?.length).toBe(0);
+      expect(body.filter?.subtype).toBe("does-not-exist-xyzzy");
+      expect(body.message).toContain("does-not-exist-xyzzy");
+    });
   });
 
   describe("lang qualifier", () => {

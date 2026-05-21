@@ -135,6 +135,23 @@ describe("resolveFromKV", () => {
     expect(secids.some((s) => s.includes("mitre.org"))).toBe(true);
   });
 
+  it("finds source-level match for bare name (cwe)", async () => {
+    // Regression test for TODO entry "cross-source search misses bare MITRE
+    // acronyms" — searching for "cwe" with no type prefix should surface
+    // weakness/mitre.org/cwe via the global index's source-level entries.
+    const result = await resolveFromKV(env.secid_REGISTRY, "cwe");
+    expect(result.status).toBe("found");
+    const secids = result.results.map((r) => (r as { secid: string }).secid);
+    expect(secids.some((s) => s === "secid:weakness/mitre.org/cwe")).toBe(true);
+  });
+
+  it("finds source-level match for bare name (capec)", async () => {
+    const result = await resolveFromKV(env.secid_REGISTRY, "capec");
+    expect(result.status).toBe("found");
+    const secids = result.results.map((r) => (r as { secid: string }).secid);
+    expect(secids.some((s) => s === "secid:ttp/mitre.org/capec")).toBe(true);
+  });
+
   it("handles invalid type", async () => {
     const result = await resolveFromKV(
       env.secid_REGISTRY,

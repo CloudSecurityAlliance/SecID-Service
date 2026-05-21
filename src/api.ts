@@ -123,6 +123,52 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       });
     }
     const result = await resolveFromKV(kv, decoded);
+
+    // Optional ?subtype= filter — applies to namespace listings within a type.
+    // Two response shapes need handling:
+    //   1. Type-only query (e.g., secid:methodology) returns a single wrapper
+    //      result whose data.namespaces is the array. Filter that inner array.
+    //   2. Other listings (cross-source, list-by-namespace) return per-entry
+    //      results with data.subtypes per result. Filter the top-level array.
+    // Item resolutions and source-description responses pass through untouched.
+    const subtypeFilter = c.req.query("subtype");
+    if (subtypeFilter) {
+      const nestedNamespaces = (
+        result.results.length === 1
+          ? (result.results[0] as { data?: { namespaces?: Array<{ subtypes?: string[] }> } }).data?.namespaces
+          : null
+      );
+      if (Array.isArray(nestedNamespaces)) {
+        const before = nestedNamespaces.length;
+        const filtered = nestedNamespaces.filter(
+          (n) => Array.isArray(n.subtypes) && n.subtypes.includes(subtypeFilter)
+        );
+        const single = result.results[0] as { data: Record<string, unknown> };
+        return c.json({
+          ...result,
+          results: [{ ...single, data: { ...single.data, namespaces: filtered, namespace_count: filtered.length } }],
+          filter: { subtype: subtypeFilter, total_before_filter: before },
+          ...(filtered.length === 0 && before > 0
+            ? { message: `No namespaces with subtype "${subtypeFilter}" found in this type.` }
+            : {}),
+        });
+      }
+      // Fallback: top-level filtering (per-entry results with data.subtypes).
+      const before = result.results.length;
+      const filtered = result.results.filter((r) => {
+        const data = (r as { data?: { subtypes?: unknown } }).data;
+        const subtypes = data?.subtypes;
+        return Array.isArray(subtypes) && subtypes.includes(subtypeFilter);
+      });
+      return c.json({
+        ...result,
+        results: filtered,
+        filter: { subtype: subtypeFilter, total_before_filter: before },
+        ...(filtered.length === 0 && before > 0
+          ? { message: `No namespaces with subtype "${subtypeFilter}" found in this type.` }
+          : {}),
+      });
+    }
     return c.json(result);
   } catch (err) {
     const entry = buildErrorEntry("api.resolve", decoded, err, c.req.raw);

@@ -62,12 +62,19 @@ export async function resolveFromKV(
   // 1. Extract type without KV
   const type = extractSecIDType(input);
   if (!type) {
-    // No valid type prefix — try bare identifier search across all types.
-    // e.g., "CVE-2024-1234" → search all types' child_index for matches.
-    const bareResult = await searchBareIdentifier(ctx, input);
-    if (bareResult) return bareResult;
+    // No valid type. Two sub-cases:
+    //   (a) Input has no "secid:" prefix → treat as bare identifier; search
+    //       all types' indices for matches (e.g., "CVE-2024-1234", "cwe").
+    //   (b) Input HAS "secid:" prefix but the type is unknown → user explicitly
+    //       typed an invalid SecID; don't fish for matches. Fall through to
+    //       the resolver's invalid-type error path.
+    const hasSecidPrefix = /^secid:/i.test(input.trimStart());
+    if (!hasSecidPrefix) {
+      const bareResult = await searchBareIdentifier(ctx, input);
+      if (bareResult) return bareResult;
+    }
 
-    // Nothing matched — let the resolver produce the error message.
+    // Nothing matched (or invalid explicit SecID) — let the resolver produce the error message.
     const parsed = parseSecID(input, {});
     return resolve(parsed, {});
   }
@@ -237,12 +244,16 @@ async function searchBareIdentifier(
   const trimmed = input.trim();
   if (!trimmed) return null;
 
-  // Single KV read: combined child_index across all types
+  // Single KV read: combined index across all types
   const globalIndex = await ctx.getGlobalIndex();
   if (!globalIndex?.child_index) return null;
 
-  // Pattern-match against the global child_index
-  const matchesByType = new Map<SecIDType, Set<string>>();
+  // Pattern-match against the global index. Source-level and child-level
+  // matches go through different resolution paths — a "cwe" match is a
+  // source identity (resolve weakness/mitre.org/cwe), whereas a "CVE-2021-44228"
+  // match is a cross-source item lookup.
+  const sourceMatches: Array<{ type: SecIDType; namespace: string; nameSlug: string }> = [];
+  const childMatchesByType = new Map<SecIDType, Set<string>>();
   for (const entry of globalIndex.child_index) {
     for (const pat of entry.patterns) {
       try {
@@ -250,10 +261,19 @@ async function searchBareIdentifier(
           ? new RegExp(pat.slice(4), "i")
           : new RegExp(pat);
         if (re.test(trimmed)) {
-          if (!matchesByType.has(entry.type)) {
-            matchesByType.set(entry.type, new Set());
+          // entry.level may be absent on older deploys — treat as "child" for compat
+          if (entry.level === "source") {
+            sourceMatches.push({
+              type: entry.type,
+              namespace: entry.namespace,
+              nameSlug: entry.name_slug,
+            });
+          } else {
+            if (!childMatchesByType.has(entry.type)) {
+              childMatchesByType.set(entry.type, new Set());
+            }
+            childMatchesByType.get(entry.type)!.add(entry.namespace);
           }
-          matchesByType.get(entry.type)!.add(entry.namespace);
           break;
         }
       } catch {
@@ -262,28 +282,49 @@ async function searchBareIdentifier(
     }
   }
 
-  if (matchesByType.size === 0) return null;
+  if (sourceMatches.length === 0 && childMatchesByType.size === 0) return null;
 
-  // Resolve across all matching types in parallel.
-  // Construct ParsedSecID directly (bypasses parser's dot-means-domain heuristic).
-  const resolveResults = await Promise.all(
-    [...matchesByType.entries()].map(async ([type, namespaces]) => {
-      const parsed: ParsedSecID = {
-        raw: input,
-        prefix: false,
-        type,
-        namespace: null,
-        name: trimmed,
-        version: null,
-        subpath: null,
-        itemVersion: null,
-        qualifiers: null,
-      };
-      const nsMap = await ctx.getNamespaces(type, [...namespaces]);
-      const registry = buildPartialRegistry(type, nsMap);
-      return resolve(parsed, registry);
-    })
-  );
+  // Resolve source-level matches: each becomes a fully-qualified query
+  // (namespace + name set) so the resolver returns the source itself.
+  const sourceResolvePromises = sourceMatches.map(async ({ type, namespace, nameSlug }) => {
+    const parsed: ParsedSecID = {
+      raw: input,
+      prefix: false,
+      type,
+      namespace,
+      name: nameSlug,
+      version: null,
+      subpath: null,
+      itemVersion: null,
+      qualifiers: null,
+    };
+    const nsMap = await ctx.getNamespaces(type, [namespace]);
+    const registry = buildPartialRegistry(type, nsMap);
+    return resolve(parsed, registry);
+  });
+
+  // Resolve child-level matches: existing type-scoped cross-source search.
+  const childResolvePromises = [...childMatchesByType.entries()].map(async ([type, namespaces]) => {
+    const parsed: ParsedSecID = {
+      raw: input,
+      prefix: false,
+      type,
+      namespace: null,
+      name: trimmed,
+      version: null,
+      subpath: null,
+      itemVersion: null,
+      qualifiers: null,
+    };
+    const nsMap = await ctx.getNamespaces(type, [...namespaces]);
+    const registry = buildPartialRegistry(type, nsMap);
+    return resolve(parsed, registry);
+  });
+
+  const resolveResults = await Promise.all([
+    ...sourceResolvePromises,
+    ...childResolvePromises,
+  ]);
 
   // Aggregate results from all types
   const allResults: ResultEntry[] = [];

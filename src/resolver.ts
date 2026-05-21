@@ -77,16 +77,34 @@ function listNamespaces(
   type: string,
   typeRegistry: Record<string, RegistryNamespace>
 ): ResolveResponse {
+  // Note: in the live worker, type-only queries (e.g., "secid:methodology")
+  // short-circuit in kv-resolve.ts and return data straight from the
+  // TypeIndex KV key without ever reaching this function. The path here
+  // remains for in-memory resolution against a fully-loaded Registry —
+  // tests, future client SDKs, and partial-registry resolution after
+  // bare-name search.
   const results: RegistryResult[] = Object.entries(typeRegistry)
     .sort(([a], [b]) => a.localeCompare(b))
-    .map(([ns, data]) => ({
-      secid: `secid:${type}/${ns}`,
-      data: {
-        official_name: data.official_name,
-        common_name: data.common_name,
-        source_count: data.match_nodes.length,
-      },
-    }));
+    .map(([ns, data]) => {
+      const subtypes = new Set<string>();
+      for (const node of data.match_nodes ?? []) {
+        const raw = (node.data as Record<string, unknown> | undefined)?.subtype;
+        if (Array.isArray(raw)) {
+          for (const v of raw) if (typeof v === "string") subtypes.add(v);
+        } else if (typeof raw === "string") {
+          subtypes.add(raw);
+        }
+      }
+      return {
+        secid: `secid:${type}/${ns}`,
+        data: {
+          official_name: data.official_name,
+          common_name: data.common_name,
+          source_count: data.match_nodes.length,
+          subtypes: [...subtypes].sort(),
+        },
+      };
+    });
 
   return response(query, "found", results);
 }
@@ -610,8 +628,37 @@ function typeScopedSearch(
 
   for (const [nsKey, ns] of Object.entries(typeRegistry)) {
     for (const node of ns.match_nodes) {
-      if (!node.children) continue;
+      // Source-level pattern match — user typed the source's own name
+      // (e.g., "cwe" matches the cwe source in weakness/mitre.org).
+      // Return source-level info rather than a child resolution.
+      if (matchesAnyPattern(node.patterns, identifier)) {
+        const nameSlug = extractNameSlug(node);
+        const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}`;
+        // Prefer source-level url; fall back to first namespace url; otherwise
+        // emit a RegistryResult with description so the consumer at least gets
+        // useful metadata.
+        const sourceUrl = node.data?.url ?? ns.urls?.[0]?.url;
+        if (sourceUrl) {
+          const res: ResolutionResult = { secid, weight: node.weight ?? 100, url: sourceUrl };
+          addFormatMetadata(res, node.data ?? {});
+          results.push(res);
+        } else {
+          results.push({
+            secid,
+            data: {
+              description: node.description,
+              weight: node.weight ?? 100,
+              official_name: ns.official_name,
+              common_name: ns.common_name,
+              child_count: node.children?.length ?? 0,
+            },
+          } as RegistryResult);
+        }
+      }
 
+      // Child-level pattern match — user typed an item identifier
+      // (e.g., "CVE-2021-44228" matches a child of the cve source).
+      if (!node.children) continue;
       for (const child of node.children) {
         if (!matchesAnyPattern(child.patterns, identifier)) continue;
 
