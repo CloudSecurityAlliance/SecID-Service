@@ -111,11 +111,29 @@ secid:control/nist.gov/800-53@r5#AC-1
       <div class="type-card">
         <h3><a href="/resolve?secid=secid:methodology" class="type-link">methodology</a></h3>
         <p>Formal processes — scoring, mapping, risk assessment, threat modeling</p>
+        <div class="type-subtypes">
+          <span class="subtypes-label">Subtypes:</span>
+          <code class="subtype-chip">mapping</code>
+          <code class="subtype-chip">scoring</code>
+          <code class="subtype-chip">risk-management</code>
+          <code class="subtype-chip">vulnerability-management</code>
+          <code class="subtype-chip">threat-modeling</code>
+          <code class="subtype-chip">security-testing</code>
+          <code class="subtype-chip">digital-forensics</code>
+          <code class="subtype-chip">incident-management</code>
+          <code class="subtype-chip">supply-chain</code>
+          <code class="subtype-chip">audit-certification</code>
+          <code class="subtype-chip">classification</code>
+        </div>
         <code>secid:methodology/first.org/cvss@4.0</code>
       </div>
       <div class="type-card">
         <h3><a href="/resolve?secid=secid:reference" class="type-link">reference</a></h3>
         <p>Documents, research, identifier systems — arXiv, DOI, RFCs, CSA artifacts</p>
+        <div class="type-subtypes">
+          <span class="subtypes-label">Subtypes:</span>
+          <code class="subtype-chip">glossary</code>
+        </div>
         <code>secid:reference/ietf.org/rfc#RFC-9110</code>
       </div>
       <div class="type-card">
@@ -262,6 +280,26 @@ secid:control/nist.gov/800-53@r5#AC-1
   .type-card code {
     font-size: 0.75rem;
     word-break: break-all;
+  }
+  .type-subtypes {
+    font-size: 0.75rem;
+    color: var(--fg-muted);
+    margin-bottom: 0.5rem;
+    line-height: 1.5;
+  }
+  .type-subtypes .subtypes-label {
+    font-weight: 600;
+    margin-right: 0.25rem;
+  }
+  .type-subtypes .subtype-chip {
+    display: inline-block;
+    padding: 0.05rem 0.4rem;
+    margin-right: 0.25rem;
+    margin-bottom: 0.15rem;
+    border-radius: 3px;
+    background: var(--bg-elevated, #eee);
+    font-size: 0.7rem;
+    word-break: keep-all;
   }
   .type-card h3 a {
     color: inherit;
