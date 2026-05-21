@@ -7,6 +7,7 @@
  *   - secid:*                   — GlobalIndex: combined child_index across all types (×1)
  *   - secid:registry            — complete compiled Registry (×1)
  *   - secid:meta                — version/counts metadata (×1)
+ *   - secid:subtypes            — per-type, per-subtype match_node counts (×1)
  *
  * Usage:
  *   npx tsx scripts/upload-registry-kv.ts [path-to-secid-repo]
@@ -204,6 +205,9 @@ function buildEntries(): BulkEntry[] {
   // secid:{type} — TypeIndex with child_index
   const types = Object.keys(registry).sort();
   const typeCounts: Record<string, number> = {};
+  // Per-type, per-subtype match_node counts. Populated in the same walk as child_index
+  // so the registry only gets traversed once. Served via /api/v1/types.
+  const subtypeCounts: Record<string, Record<string, number>> = {};
 
   for (const type of types) {
     const namespaces = Object.entries(registry[type])
@@ -222,6 +226,20 @@ function buildEntries(): BulkEntry[] {
     for (const [ns, data] of Object.entries(registry[type])) {
       if (!data.match_nodes) continue;
       for (const node of data.match_nodes) {
+        // Subtype tags live on source-level match_nodes. Each is an array of
+        // string values per TYPES-AND-SUBTYPES.md. Tolerate single-string for
+        // safety even though the convention is array-only.
+        const rawSubtype = (node.data as Record<string, unknown> | undefined)?.subtype;
+        const subtypeValues = Array.isArray(rawSubtype)
+          ? rawSubtype.filter((v): v is string => typeof v === "string")
+          : typeof rawSubtype === "string"
+            ? [rawSubtype]
+            : [];
+        for (const v of subtypeValues) {
+          subtypeCounts[type] ??= {};
+          subtypeCounts[type][v] = (subtypeCounts[type][v] ?? 0) + 1;
+        }
+
         const nameSlug = extractNameSlug(node);
         if (!node.children) continue;
         for (const child of node.children) {
@@ -298,6 +316,14 @@ function buildEntries(): BulkEntry[] {
       total_namespaces: count,
       types: typeCounts,
     }),
+  });
+
+  // secid:subtypes — per-type, per-subtype match_node counts. Served by /api/v1/types
+  // merged with the bundled type-registry constant. Types with zero subtype-tagged
+  // entries simply have no entry in the outer record.
+  entries.push({
+    key: "secid:subtypes",
+    value: JSON.stringify(subtypeCounts),
   });
 
   console.log(`Built ${entries.length} KV entries from ${count} namespaces:`);

@@ -329,6 +329,11 @@
 </style>
 
 <script>
+  // Pull the short descriptions from the single source of truth so the
+  // explorer's type-grid stays in sync with the homepage and the MCP describe
+  // tool. See src/type-registry.ts.
+  import { TYPE_SHORT_DESCRIPTIONS as TYPE_DESCRIPTIONS_IMPORT } from "../../../src/type-registry";
+
   const form = document.getElementById("resolver-form") as HTMLFormElement;
   const input = document.getElementById("resolver-input") as HTMLInputElement;
   const output = document.getElementById("resolver-output") as HTMLDivElement;
@@ -383,18 +388,7 @@
   let explorerMode = false;
   let explorerPath: { label: string; secid: string | null }[] = [];
 
-  const TYPE_DESCRIPTIONS: Record<string, string> = {
-    advisory: "Vulnerability advisories, incident reports, and safety publications",
-    capability: "Product security features — configurations, audit commands, remediation",
-    control: "Security controls, frameworks, and benchmarks",
-    disclosure: "Vulnerability disclosure programs, policies, and reporting channels",
-    entity: "Vendors, products, and services",
-    methodology: "Formal processes — scoring (CVSS, SSVC), mapping (IR 8477), risk assessment (ISO 27005), threat modeling (STRIDE)",
-    reference: "Documents, research papers, and identifier systems",
-    regulation: "Laws, directives, and legal requirements",
-    ttp: "Attack patterns, adversary techniques, and procedures",
-    weakness: "Weakness taxonomies and abstract flaw patterns",
-  };
+  const TYPE_DESCRIPTIONS: Record<string, string> = TYPE_DESCRIPTIONS_IMPORT;
 
   // --- Example buttons fill the input and submit ---
   form.querySelectorAll("[data-example]").forEach((btn) => {
