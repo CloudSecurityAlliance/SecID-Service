@@ -895,8 +895,34 @@
             item.appendChild(exDiv);
           }
 
+          // Subtype — array of named sub-classifications. See SecID/docs/reference/TYPES-AND-SUBTYPES.md
+          if (Array.isArray(d.subtype) && (d.subtype as unknown[]).length > 0) {
+            const sDiv = document.createElement("div");
+            sDiv.style.marginTop = "0.3rem";
+            sDiv.style.fontSize = "0.8rem";
+            sDiv.style.color = "var(--fg-muted)";
+            const sLabel = document.createElement("span");
+            sLabel.textContent = "Subtype: ";
+            sLabel.style.fontWeight = "600";
+            sDiv.appendChild(sLabel);
+            for (const v of d.subtype as unknown[]) {
+              if (typeof v !== "string") continue;
+              const badge = document.createElement("span");
+              badge.textContent = v;
+              badge.style.display = "inline-block";
+              badge.style.padding = "0.05rem 0.4rem";
+              badge.style.marginRight = "0.3rem";
+              badge.style.borderRadius = "3px";
+              badge.style.background = "var(--bg-elevated, #eee)";
+              badge.style.fontFamily = "monospace";
+              badge.style.fontSize = "0.75rem";
+              sDiv.appendChild(badge);
+            }
+            item.appendChild(sDiv);
+          }
+
           // Remaining data fields not yet rendered — show as key: value
-          const rendered = new Set(["official_name", "common_name", "description", "scope", "note", "notes", "urls", "contacts", "patterns", "examples", "weight", "source_count", "child_count"]);
+          const rendered = new Set(["official_name", "common_name", "description", "scope", "note", "notes", "urls", "contacts", "patterns", "examples", "weight", "source_count", "child_count", "subtype"]);
           for (const [key, val] of Object.entries(d)) {
             if (rendered.has(key) || val == null) continue;
             if (typeof val === "object") continue; // skip complex objects
@@ -1097,6 +1123,29 @@
                 const p = document.createElement("p");
                 p.textContent = d.description as string;
                 detail.appendChild(p);
+              }
+              if (Array.isArray(d.subtype) && (d.subtype as unknown[]).length > 0) {
+                const sDiv = document.createElement("div");
+                sDiv.style.marginTop = "0.3rem";
+                sDiv.style.fontSize = "0.8rem";
+                const sLabel = document.createElement("span");
+                sLabel.textContent = "Subtype: ";
+                sLabel.style.fontWeight = "600";
+                sDiv.appendChild(sLabel);
+                for (const v of d.subtype as unknown[]) {
+                  if (typeof v !== "string") continue;
+                  const badge = document.createElement("span");
+                  badge.textContent = v;
+                  badge.style.display = "inline-block";
+                  badge.style.padding = "0.05rem 0.4rem";
+                  badge.style.marginRight = "0.3rem";
+                  badge.style.borderRadius = "3px";
+                  badge.style.background = "var(--bg-elevated, #eee)";
+                  badge.style.fontFamily = "monospace";
+                  badge.style.fontSize = "0.75rem";
+                  sDiv.appendChild(badge);
+                }
+                detail.appendChild(sDiv);
               }
               if (d.examples && Array.isArray(d.examples)) {
                 const exH4 = document.createElement("h4");
