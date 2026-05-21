@@ -3,9 +3,48 @@ import { resolveFromKV } from "./kv-resolve";
 import { RegistryContext } from "./kv-registry";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
+import { TYPE_REGISTRY } from "./type-registry";
 
 const MAX_SECID_QUERY_CHARS = 1024;
 const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value size)
+
+/**
+ * Returns the canonical list of SecID types and their named subtypes, merged
+ * with per-(type, subtype) entry counts when available.
+ *
+ * Types and subtypes are served from the bundled type-registry constant —
+ * zero KV reads, zero latency. Counts come from the secid:subtypes KV key
+ * populated at upload time (and from secid:meta for top-level type counts).
+ * If either KV key is missing, the response still returns the type/subtype
+ * structure with counts omitted or zero.
+ */
+export async function handleTypes(c: Context<AppEnv>): Promise<Response> {
+  const kv = c.env.secid_REGISTRY;
+  let typeCounts: Record<string, number> = {};
+  let subtypeCounts: Record<string, Record<string, number>> = {};
+  if (kv) {
+    const ctx = new RegistryContext(kv);
+    const [meta, subtypes] = await Promise.all([
+      ctx.getMeta().catch(() => null),
+      ctx.getSubtypeCounts().catch(() => null),
+    ]);
+    if (meta?.types) typeCounts = meta.types;
+    if (subtypes) subtypeCounts = subtypes;
+  }
+  return c.json({
+    types: TYPE_REGISTRY.map((t) => ({
+      type: t.type,
+      description: t.short,
+      long_description: t.long,
+      namespace_count: typeCounts[t.type] ?? null,
+      subtypes: t.subtypes.map((s) => ({
+        value: s.value,
+        description: s.description,
+        count: subtypeCounts[t.type]?.[s.value] ?? null,
+      })),
+    })),
+  });
+}
 
 export async function handleRegistryDownload(
   c: Context<AppEnv>

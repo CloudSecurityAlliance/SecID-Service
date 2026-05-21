@@ -1,19 +1,10 @@
 // ── SecID Types ──
-// Valid SecID types as defined by the spec
-export const SECID_TYPES = [
-  "advisory",
-  "capability",
-  "control",
-  "disclosure",
-  "entity",
-  "methodology",
-  "reference",
-  "regulation",
-  "ttp",
-  "weakness",
-] as const;
-
-export type SecIDType = (typeof SECID_TYPES)[number];
+// Valid SecID types are defined by the type-registry (single source of truth).
+// Re-exported here so existing imports of `SECID_TYPES`/`SecIDType` from
+// "./types" keep working without churn across the codebase.
+import { SECID_TYPES as _SECID_TYPES, type SecIDType as _SecIDType } from "./type-registry";
+export const SECID_TYPES = _SECID_TYPES;
+export type SecIDType = _SecIDType;
 
 // ── Parsed SecID ──
 // Result of parsing a SecID string into components
@@ -183,6 +174,13 @@ export interface RegistryMeta {
   total_namespaces: number;
   types: Record<string, number>;
 }
+
+/**
+ * Per-type subtype counts. Outer key is type name, inner key is subtype value,
+ * value is the number of source-level match_nodes carrying that subtype.
+ * Populated at KV upload time by walking registry entries; served via /api/v1/types.
+ */
+export type SubtypeCounts = Record<string, Record<string, number>>;
 
 // ── App Environment ──
 // Cloudflare Worker bindings available via Hono context

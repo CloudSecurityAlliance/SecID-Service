@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { handleResolve, handleRegistryDownload } from "./api";
+import { handleResolve, handleRegistryDownload, handleTypes } from "./api";
 import { handleMCP } from "./mcp";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
@@ -28,6 +28,7 @@ app.onError(async (err, c) => {
 
 app.get("/api/v1/resolve", handleResolve);
 app.get("/api/v1/registry.json", handleRegistryDownload);
+app.get("/api/v1/types", handleTypes);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 

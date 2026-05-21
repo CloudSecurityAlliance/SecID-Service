@@ -7,9 +7,20 @@ import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
 import type { Context } from "hono";
 import { buildErrorEntry, recordError } from "./observability";
+import { TYPE_REGISTRY, TYPE_BY_NAME } from "./type-registry";
 
 const MAX_SECID_QUERY_CHARS = 1024;
 const MAX_MCP_BODY_BYTES = 64 * 1024; // 64 KB
+
+// One-line summary of all 10 types — used to keep prompt descriptions in sync
+// with the canonical type-registry without manual duplication. Format:
+// "type1 (examples), type2 (examples), ..."
+// Falls back gracefully if a short description doesn't follow the " — examples" convention.
+const TYPES_INLINE = TYPE_REGISTRY.map((t) => {
+  const dashIdx = t.short.indexOf(" — ");
+  const examples = dashIdx !== -1 ? t.short.slice(dashIdx + 3) : t.short;
+  return `${t.type} (${examples})`;
+}).join(", ");
 
 // ── Documentation resources ──
 // These are MCP resources containing instructions for building SecID clients.
@@ -337,7 +348,7 @@ RESPONSE: Same format as resolve — { secid_query, status, results[], message? 
 Results from different sources will have different secid values showing where each match was found.
 Sort by weight descending — highest weight is the most authoritative source.
 
-TYPES: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, vulnerability reporting — 502 CVE Program partners with scope, contacts, policy), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI)`;
+TYPES: ${TYPES_INLINE}`;
 
 const DESCRIBE_DESCRIPTION = `Get registry metadata about a SecID source, namespace, or type — without resolving a specific item.
 
@@ -505,8 +516,23 @@ function createMcpServer(
         const hashIdx = secid.indexOf("#");
         const describeInput = hashIdx !== -1 ? secid.slice(0, hashIdx) : secid;
         const result = await resolveFromKV(registryKv, describeInput);
+
+        // Bare-type query (secid:<type>): augment response with declared subtypes
+        // from the type-registry. Lets MCP clients discover what subtypes exist
+        // without an extra round-trip to /api/v1/types.
+        const bareType = (() => {
+          const stripped = describeInput.startsWith("secid:") ? describeInput.slice(6) : describeInput;
+          if (stripped.includes("/")) return null;
+          const cleaned = stripped.split("@")[0].split("?")[0];
+          return TYPE_BY_NAME[cleaned] ? cleaned : null;
+        })();
+
+        const responsePayload: unknown = bareType
+          ? { ...(result as unknown as Record<string, unknown>), subtypes: TYPE_BY_NAME[bareType]!.subtypes }
+          : result;
+
         return {
-          content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+          content: [{ type: "text", text: JSON.stringify(responsePayload, null, 2) }],
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.describe", secid, err, req);
@@ -532,7 +558,7 @@ function createMcpServer(
   server.resource(
     "registry",
     "secid://registry",
-    { description: "Full listing of all SecID types and their namespace counts. SecID covers 10 types: advisory (CVEs, vendor advisories), weakness (CWE, OWASP), ttp (ATT&CK, CAPEC), control (NIST, ISO), capability (product security features — encryption, logging, access control), methodology (scoring, mapping, risk assessment — CVSS, SSVC, IR 8477), disclosure (CVE CNAs, PSIRTs, bug bounties), regulation (GDPR, HIPAA), entity (orgs, products), reference (RFCs, arXiv, DOI). 700+ namespaces total." },
+    { description: `Full listing of all SecID types and their namespace counts. SecID covers ${TYPE_REGISTRY.length} types: ${TYPES_INLINE}. 700+ namespaces total.` },
     async () => {
       const listing: Record<string, number> = {};
       const ctx = new RegistryContext(registryKv);

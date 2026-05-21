@@ -3,6 +3,7 @@ import type {
   Registry,
   RegistryMeta,
   RegistryNamespace,
+  SubtypeCounts,
   TypeIndex,
 } from "./types";
 
@@ -82,5 +83,15 @@ export class RegistryContext {
 
   async getMeta(): Promise<RegistryMeta | null> {
     return this.kv.get<RegistryMeta>("secid:meta", "json");
+  }
+
+  /**
+   * Returns per-type, per-subtype counts as computed by the KV upload script.
+   * Returns null if the key isn't populated (e.g., older deploys before the
+   * subtype-counting upload script shipped). Callers should treat null as
+   * "counts unavailable" and fall back to zero or omit counts from responses.
+   */
+  async getSubtypeCounts(): Promise<SubtypeCounts | null> {
+    return this.kv.get<SubtypeCounts>("secid:subtypes", "json");
   }
 }
