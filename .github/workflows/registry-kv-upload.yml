@@ -1,8 +1,23 @@
 name: Upload registry to KV
 
+# Triggers:
+#   - repository_dispatch (registry-updated): fires when CloudSecurityAlliance/SecID
+#     merges a registry change. The dispatch is sent by SecID's update-registry.yml.
+#   - push to main: any merge into this repo (code, website, docs). The registry
+#     content fetched from the SecID repo will be whatever main currently has;
+#     a docs-only push to this repo still triggers a full registry sync + deploy
+#     because src/registry.ts is regenerated each run and the Worker bundles it.
+#   - workflow_dispatch: manual trigger from the gh CLI / Actions UI.
+#
+# Safety note: this workflow does NOT interpolate untrusted GitHub event data
+# (issue titles, PR bodies, commit messages, etc.) into shell commands. The
+# only template expansions are `${{ secrets.SECID_SERVICE_DEPLOY }}` for the
+# Cloudflare token, which is a repo secret, not user input.
 on:
   repository_dispatch:
     types: [registry-updated]
+  push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:

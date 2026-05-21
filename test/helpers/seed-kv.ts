@@ -42,6 +42,10 @@ function extractNameSlug(node: MatchNodeLike): string {
 
 export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
   const typeCounts: Record<string, number> = {};
+  // Combined index across all types — must mirror the production upload script
+  // (scripts/upload-registry-kv.ts) so tests exercise the same bare-name and
+  // cross-source search paths the live deploy hits.
+  const globalChildIndex: Array<ChildIndexEntry & { type: string; level: "source" | "child" }> = [];
   let total = 0;
 
   for (const [type, namespaces] of Object.entries(REGISTRY)) {
@@ -64,7 +68,8 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
         common_name: string | null;
         match_nodes: MatchNodeLike[];
       };
-      // Build child_index entries
+      // Build child_index entries (per-type — child level only; matches the
+      // production TypeIndex shape).
       for (const node of nsData.match_nodes ?? []) {
         const nameSlug = extractNameSlug(node);
         for (const child of node.children ?? []) {
@@ -78,11 +83,51 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
           });
         }
       }
+      // Build global index entries (both source-level and child-level —
+      // matches the production secid:* key shape).
+      for (const node of nsData.match_nodes ?? []) {
+        const nameSlug = extractNameSlug(node);
+        globalChildIndex.push({
+          type,
+          namespace: ns,
+          name_slug: nameSlug,
+          level: "source",
+          patterns: node.patterns,
+          description: node.description,
+          weight: node.weight ?? 100,
+          has_url: !!(node.data?.url),
+        });
+        for (const child of node.children ?? []) {
+          globalChildIndex.push({
+            type,
+            namespace: ns,
+            name_slug: nameSlug,
+            level: "child",
+            patterns: child.patterns,
+            description: child.description,
+            weight: child.weight,
+            has_url: !!child.data?.url,
+          });
+        }
+      }
+      // Union of subtype values across all source-level match_nodes — mirrors
+      // the production upload script so filter tests can exercise the same
+      // shape the live deploy returns.
+      const subtypes = new Set<string>();
+      for (const node of nsData.match_nodes ?? []) {
+        const raw = (node.data as Record<string, unknown> | undefined)?.subtype;
+        if (Array.isArray(raw)) {
+          for (const v of raw) if (typeof v === "string") subtypes.add(v);
+        } else if (typeof raw === "string") {
+          subtypes.add(raw);
+        }
+      }
       return {
         namespace: ns,
         official_name: nsData.official_name,
         common_name: nsData.common_name,
         source_count: nsData.match_nodes?.length ?? 0,
+        subtypes: [...subtypes].sort(),
       };
     });
 
@@ -95,6 +140,9 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
     };
     await kv.put(`secid:${type}`, JSON.stringify(typeIndex));
   }
+
+  // Write secid:* (global index for bare-name lookup)
+  await kv.put("secid:*", JSON.stringify({ child_index: globalChildIndex }));
 
   // Write secid:registry
   await kv.put("secid:registry", JSON.stringify(REGISTRY));

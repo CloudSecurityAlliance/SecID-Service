@@ -108,7 +108,13 @@ secid:control/nist.gov/800-53@r5#AC-1
             <div class="type-subtypes">
               <span class="subtypes-label">Subtypes:</span>
               {t.subtypes.map((s) => (
-                <code class="subtype-chip">{s.value}</code>
+                <a
+                  href={`/resolve?secid=secid:${t.type}&subtype=${s.value}`}
+                  class="subtype-chip-link"
+                  title={s.description}
+                >
+                  <code class="subtype-chip">{s.value}</code>
+                </a>
               ))}
             </div>
           )}
@@ -264,6 +270,14 @@ secid:control/nist.gov/800-53@r5#AC-1
     background: var(--bg-elevated, #eee);
     font-size: 0.7rem;
     word-break: keep-all;
+  }
+  .type-subtypes .subtype-chip-link {
+    text-decoration: none;
+    color: inherit;
+  }
+  .type-subtypes .subtype-chip-link:hover .subtype-chip {
+    background: var(--accent-bg, #d0d4dc);
+    text-decoration: underline;
   }
   .type-card h3 a {
     color: inherit;

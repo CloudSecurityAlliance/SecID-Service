@@ -147,6 +147,11 @@ export interface TypeIndex {
     official_name: string;
     common_name: string | null;
     source_count: number;
+    /** Union of subtype values across all source-level match_nodes in this
+     *  namespace (e.g., ["mapping", "scoring"]). Empty array means no
+     *  subtype tags. Older deploys may omit this field; treat absent as
+     *  empty for filter purposes. */
+    subtypes?: string[];
   }>;
   child_index: ChildIndexEntry[];
 }
@@ -154,6 +159,14 @@ export interface TypeIndex {
 export interface ChildIndexEntry {
   namespace: string;
   name_slug: string;
+  /**
+   * "source" entries match the source-level match_node itself (e.g., "cwe"
+   * matches weakness/mitre.org/cwe). "child" entries match a specific item
+   * identifier within a source (e.g., "CVE-2021-44228" matches a child of
+   * advisory/mitre.org/cve). Older deploys may omit this field; treat
+   * absent as "child" for backward compatibility.
+   */
+  level?: "source" | "child";
   patterns: string[];
   description: string;
   weight: number;

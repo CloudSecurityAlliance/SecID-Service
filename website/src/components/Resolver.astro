@@ -360,9 +360,10 @@
     output.hidden = false;
     output.textContent = "Resolving\u2026";
     try {
-      const data = await fetchResolve(secid);
+      const subtype = currentSubtypeFilter();
+      const data = await fetchResolve(secid, { subtype });
       renderResponse(output, data);
-      document.title = `${secid} \u2014 SecID`;
+      document.title = `${secid}${subtype ? ` [subtype=${subtype}]` : ""} \u2014 SecID`;
     } catch (err) {
       output.textContent = `Error: ${(err as Error).message}`;
     }
@@ -429,10 +430,18 @@
   });
 
   // --- API helper ---
-  async function fetchResolve(secid: string): Promise<ResolveResponse> {
-    const url = `/api/v1/resolve?secid=${encodeURIComponent(secid)}`;
+  async function fetchResolve(secid: string, opts?: { subtype?: string | null }): Promise<ResolveResponse> {
+    let url = `/api/v1/resolve?secid=${encodeURIComponent(secid)}`;
+    if (opts?.subtype) {
+      url += `&subtype=${encodeURIComponent(opts.subtype)}`;
+    }
     const res = await fetch(url);
     return res.json();
+  }
+
+  /** Read ?subtype= from the current URL once, returned as a string or null. */
+  function currentSubtypeFilter(): string | null {
+    return new URLSearchParams(window.location.search).get("subtype");
   }
 
   // --- Close button helper ---
@@ -526,6 +535,48 @@
     header.appendChild(querySpan);
 
     container.appendChild(header);
+
+    // Active subtype filter indicator (sent back by the API when ?subtype= is applied).
+    // Build via explicit DOM nodes to keep the filter.subtype value (read from the URL)
+    // from ever being interpreted as HTML.
+    const filter = (data as unknown as { filter?: { subtype?: string; total_before_filter?: number } }).filter;
+    if (filter?.subtype) {
+      const filterBar = document.createElement("div");
+      filterBar.style.marginTop = "0.4rem";
+      filterBar.style.padding = "0.3rem 0.5rem";
+      filterBar.style.background = "var(--bg-elevated, #eee)";
+      filterBar.style.borderRadius = "4px";
+      filterBar.style.fontSize = "0.8rem";
+      filterBar.style.display = "flex";
+      filterBar.style.alignItems = "center";
+      filterBar.style.gap = "0.5rem";
+
+      const labelPrefix = document.createElement("span");
+      labelPrefix.textContent = "Filtered by subtype:";
+      filterBar.appendChild(labelPrefix);
+
+      const labelCode = document.createElement("code");
+      labelCode.textContent = filter.subtype;
+      filterBar.appendChild(labelCode);
+
+      const before = filter.total_before_filter ?? 0;
+      const after = data.results.length;
+      const counts = document.createElement("span");
+      counts.style.color = "var(--fg-muted)";
+      counts.textContent = `(${after} of ${before})`;
+      filterBar.appendChild(counts);
+
+      const clearBtn = document.createElement("a");
+      clearBtn.textContent = "clear filter";
+      const params = new URLSearchParams(window.location.search);
+      params.delete("subtype");
+      clearBtn.href = `${window.location.pathname}?${params.toString()}`;
+      clearBtn.style.marginLeft = "auto";
+      clearBtn.style.fontSize = "0.75rem";
+      filterBar.appendChild(clearBtn);
+
+      container.appendChild(filterBar);
+    }
 
     // Message if present
     if (data.message) {
