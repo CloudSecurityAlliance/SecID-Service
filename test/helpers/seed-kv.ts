@@ -7,18 +7,7 @@
 
 import { REGISTRY } from "../../src/registry";
 import type { ChildIndexEntry, TypeIndex } from "../../src/types";
-
-const TYPE_DESCRIPTIONS: Record<string, string> = {
-  advisory:
-    "Publications about vulnerabilities (CVE, GHSA, vendor advisories, incident reports)",
-  weakness: "Abstract flaw patterns (CWE, OWASP Top 10)",
-  ttp: "Adversary techniques (ATT&CK, ATLAS, CAPEC)",
-  control: "Security requirements (NIST CSF, ISO 27001, benchmarks)",
-  regulation: "Laws and legal requirements (GDPR, HIPAA)",
-  entity: "Organizations, products, services",
-  reference:
-    "Documents, research, identifier systems (arXiv, DOI, ISBN, RFCs)",
-};
+import { TYPE_SHORT_DESCRIPTIONS } from "../../src/type-registry";
 
 interface MatchNodeLike {
   patterns: string[];
@@ -133,7 +122,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
 
     const typeIndex: TypeIndex = {
       type,
-      description: TYPE_DESCRIPTIONS[type] ?? type,
+      description: TYPE_SHORT_DESCRIPTIONS[type] ?? type,
       namespace_count: nsList.length,
       namespaces: nsList,
       child_index: childIndex,
