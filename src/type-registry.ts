@@ -42,7 +42,9 @@ export const TYPE_REGISTRY: readonly TypeDef[] = [
     type: "advisory",
     short: "Vulnerability publications — CVEs, vendor advisories, GHSAs, incident reports",
     long: "Publications about vulnerabilities — CVE records, GHSA advisories, vendor advisories, and incident reports (AIID, NHTSA, FDA adverse events). Both vuln advisories and incident reports answer 'this happened.'",
-    subtypes: [],
+    subtypes: [
+      { value: "incident", description: "Incident reports — publications documenting that an AI, automated, or computing system caused harm or behaved badly. Sources include AIID, AIAAIC, NHTSA SGO crash reports, and CA DMV autonomous-vehicle reports." },
+    ],
   },
   {
     type: "capability",
