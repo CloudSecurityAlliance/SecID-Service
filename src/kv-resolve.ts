@@ -1,6 +1,7 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
 import { resolve } from "./resolver";
+import { recordMiss } from "./feedback";
 import {
   isResolutionResult,
   SECID_TYPES,
@@ -26,9 +27,21 @@ import {
  * 5. Fetch the namespace(s) needed for resolution
  * 6. Build a real (but partial) Registry and resolve
  */
+/**
+ * Optional hook for capturing namespace-level misses. When provided, a
+ * `not_found` carrying a `submission_url` (i.e. a recognized type + a
+ * namespace that isn't registered) is recorded to the feedback KV. Passing
+ * `waitUntil` keeps the KV write off the response path.
+ */
+export interface MissCapture {
+  feedbackKv?: KVNamespace;
+  waitUntil?: (p: Promise<unknown>) => void;
+}
+
 export async function resolveFromKV(
   kv: KVNamespace,
-  input: string
+  input: string,
+  capture?: MissCapture
 ): Promise<ResolveResponse> {
   const ctx = new RegistryContext(kv);
 
@@ -122,7 +135,24 @@ export async function resolveFromKV(
 
   // 7. Build real (partial) registry and resolve
   const registry = buildPartialRegistry(type, nsMap);
-  return resolve(parsed, registry);
+  const result = resolve(parsed, registry);
+
+  // Capture namespace-level misses. The resolver only sets submission_url when
+  // a recognized type names a namespace that isn't registered — exactly the
+  // actionable "we should add this" signal.
+  if (
+    capture?.feedbackKv &&
+    result.status === "not_found" &&
+    result.submission_url &&
+    parsed.type &&
+    parsed.namespace
+  ) {
+    const write = recordMiss(capture.feedbackKv, parsed.type, parsed.namespace, input);
+    if (capture.waitUntil) capture.waitUntil(write);
+    else await write;
+  }
+
+  return result;
 }
 
 /**

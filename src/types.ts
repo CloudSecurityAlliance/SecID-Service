@@ -200,6 +200,7 @@ export type SubtypeCounts = Record<string, Record<string, number>>;
 export interface AppBindings {
   secid_OBSERVABILITY?: KVNamespace;
   secid_REGISTRY?: KVNamespace;
+  secid_FEEDBACK?: KVNamespace;
 }
 
 export type AppEnv = {
@@ -240,6 +241,9 @@ export interface ResolveResponse {
   status: ResponseStatus;
   results: ResultEntry[];
   message?: string;
+  // Present on namespace-level `not_found` responses: a deep link to the
+  // prefilled GitHub issue form for submitting the missing source/entity.
+  submission_url?: string;
 }
 
 // Type guard helpers

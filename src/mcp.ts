@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { resolveFromKV } from "./kv-resolve";
+import { resolveFromKV, type MissCapture } from "./kv-resolve";
 import { RegistryContext } from "./kv-registry";
 import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
@@ -380,7 +380,8 @@ Use this to help users construct valid SecID strings or to explore what the regi
 function createMcpServer(
   kv: KVNamespace | undefined,
   registryKv: KVNamespace,
-  req: Request
+  req: Request,
+  capture?: MissCapture
 ): McpServer {
   const server = new McpServer({
     name: "secid",
@@ -412,7 +413,7 @@ function createMcpServer(
         };
       }
       try {
-        const result = await resolveFromKV(registryKv, secid);
+        const result = await resolveFromKV(registryKv, secid, capture);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -463,7 +464,7 @@ function createMcpServer(
       }
       const secid = `secid:${type}/${identifier}`;
       try {
-        const result = await resolveFromKV(registryKv, secid);
+        const result = await resolveFromKV(registryKv, secid, capture);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
@@ -515,7 +516,7 @@ function createMcpServer(
         // Strip subpath (#...) from input for describe — return source-level info
         const hashIdx = secid.indexOf("#");
         const describeInput = hashIdx !== -1 ? secid.slice(0, hashIdx) : secid;
-        const result = await resolveFromKV(registryKv, describeInput);
+        const result = await resolveFromKV(registryKv, describeInput, capture);
 
         // Bare-type query (secid:<type>): augment response with declared subtypes
         // from the type-registry. Lets MCP clients discover what subtypes exist
@@ -705,7 +706,10 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
     );
   }
 
-  const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw);
+  const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw, {
+    feedbackKv: c.env.secid_FEEDBACK,
+    waitUntil: (p) => c.executionCtx.waitUntil(p),
+  });
 
   try {
     const transport = new WebStandardStreamableHTTPServerTransport({
