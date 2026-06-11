@@ -17,5 +17,12 @@ binding = "secid_REGISTRY"
 id = "cfbc271787614516a39fa43d9ca4f95a"
 preview_id = "bda410b73cc34b468c84bf2dc9fba45f"
 
+# Captures namespace-level "not_found" misses (miss:<type>/<namespace>) so we
+# have a ranked backlog of the most-requested sources we don't yet cover.
+[[kv_namespaces]]
+binding = "secid_FEEDBACK"
+id = "61642c6485674ef597cbff50fe9b9f18"
+preview_id = "ef093fcb1caa4b55bb25f52b80082fc9"
+
 [assets]
 directory = "./website/dist"

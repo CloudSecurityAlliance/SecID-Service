@@ -122,7 +122,10 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
         message: "Registry KV not configured.",
       });
     }
-    const result = await resolveFromKV(kv, decoded);
+    const result = await resolveFromKV(kv, decoded, {
+      feedbackKv: c.env.secid_FEEDBACK,
+      waitUntil: (p) => c.executionCtx.waitUntil(p),
+    });
 
     // Optional ?subtype= filter — applies to namespace listings within a type.
     // Two response shapes need handling:

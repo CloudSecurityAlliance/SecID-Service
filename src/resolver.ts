@@ -51,13 +51,17 @@ export function resolve(
 
   const ns = typeRegistry[parsed.namespace!];
 
-  // Namespace not in registry
+  // Namespace not in registry — a namespace-level miss. Offer a prefilled
+  // submission link; callers use the presence of submission_url to record
+  // the miss (see recordMiss).
   if (!ns) {
+    const submissionUrl = buildSubmissionUrl(parsed.type, parsed.namespace!);
     return response(
       query,
       "not_found",
       [],
-      `Namespace "${parsed.namespace}" not found in type "${parsed.type}". Request it at https://github.com/CloudSecurityAlliance/SecID/issues`
+      `Namespace "${parsed.namespace}" not found in type "${parsed.type}". Submit it at ${submissionUrl}`,
+      submissionUrl
     );
   }
 
@@ -843,9 +847,28 @@ function response(
   query: string,
   status: ResolveResponse["status"],
   results: ResultEntry[],
-  message?: string
+  message?: string,
+  submissionUrl?: string
 ): ResolveResponse {
   const r: ResolveResponse = { secid_query: query, status, results };
   if (message) r.message = message;
+  if (submissionUrl) r.submission_url = submissionUrl;
   return r;
+}
+
+const ISSUE_NEW = "https://github.com/CloudSecurityAlliance/SecID/issues/new";
+
+/**
+ * Build a deep link to the prefilled GitHub issue form for submitting a
+ * missing namespace. Entities use the short entity form (domain prefilled);
+ * every other type uses the namespace form (namespace prefilled). The field
+ * IDs (`domain`, `namespace`) match `.github/ISSUE_TEMPLATE/*.yml` in the
+ * spec repo, which is what GitHub's query-string prefill keys on.
+ */
+export function buildSubmissionUrl(type: string, namespace: string): string {
+  const ns = encodeURIComponent(namespace);
+  if (type === "entity") {
+    return `${ISSUE_NEW}?template=add-entity.yml&labels=submission,entity&domain=${ns}`;
+  }
+  return `${ISSUE_NEW}?template=add-namespace.yml&labels=submission,registry&namespace=${ns}`;
 }
