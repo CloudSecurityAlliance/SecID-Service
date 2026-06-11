@@ -1,6 +1,6 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
-import { resolve } from "./resolver";
+import { resolve, buildSubmissionUrl } from "./resolver";
 import { recordMiss } from "./feedback";
 import {
   isResolutionResult,
@@ -137,19 +137,27 @@ export async function resolveFromKV(
   const registry = buildPartialRegistry(type, nsMap);
   const result = resolve(parsed, registry);
 
-  // Capture namespace-level misses. The resolver only sets submission_url when
-  // a recognized type names a namespace that isn't registered — exactly the
-  // actionable "we should add this" signal.
-  if (
-    capture?.feedbackKv &&
+  // Detect a namespace-level miss authoritatively from the TypeIndex (the full
+  // namespace list), not from the resolver's message. In the KV flow only the
+  // requested namespace is fetched, so on a miss the partial registry is empty
+  // and resolve() reports "no namespaces registered for type" rather than
+  // "namespace not found" — either way, if the parsed namespace isn't in the
+  // index, it's the actionable "we should add this" signal.
+  const isNamespaceMiss =
     result.status === "not_found" &&
-    result.submission_url &&
-    parsed.type &&
-    parsed.namespace
-  ) {
-    const write = recordMiss(capture.feedbackKv, parsed.type, parsed.namespace, input);
-    if (capture.waitUntil) capture.waitUntil(write);
-    else await write;
+    !!parsed.namespace &&
+    !typeIndex.namespaces.some((n) => n.namespace === parsed.namespace);
+
+  if (isNamespaceMiss) {
+    const submissionUrl = buildSubmissionUrl(type, parsed.namespace!);
+    result.submission_url = submissionUrl;
+    result.message = `Namespace "${parsed.namespace}" not found in type "${type}". Submit it at ${submissionUrl}`;
+
+    if (capture?.feedbackKv) {
+      const write = recordMiss(capture.feedbackKv, type, parsed.namespace!, input);
+      if (capture.waitUntil) capture.waitUntil(write);
+      else await write;
+    }
   }
 
   return result;
