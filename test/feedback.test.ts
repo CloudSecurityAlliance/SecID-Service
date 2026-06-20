@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { recordMiss, type MissRecord } from "../src/feedback";
+import { recordMiss, recordFeedback, type MissRecord, type FeedbackRecord } from "../src/feedback";
+
+const UUID_V7_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
 // Minimal in-memory KV stand-in (recordMiss only uses get/put).
 function makeKV() {
@@ -68,5 +70,38 @@ describe("recordMiss", () => {
     await expect(
       recordMiss(failingKv, "entity", "example.com", "secid:entity/example.com"),
     ).resolves.toBeUndefined();
+  });
+});
+
+describe("recordFeedback", () => {
+  it("writes a feedback:<uuid> record and returns it", async () => {
+    const { kv, store } = makeKV();
+    const rec = await recordFeedback(kv, {
+      category: "missing-namespace",
+      secid: "secid:entity/newvendor.com",
+      message: "Please add NewVendor — they publish advisories.",
+      suggested_urls: ["https://newvendor.com/security"],
+    });
+
+    expect(rec.id).toMatch(UUID_V7_REGEX);
+    expect(rec.category).toBe("missing-namespace");
+    expect(rec.source).toBe("mcp");
+    expect(rec.suggested_urls).toEqual(["https://newvendor.com/security"]);
+
+    const raw = store.get(`feedback:${rec.id}`);
+    expect(raw).toBeDefined();
+    const stored = JSON.parse(raw!) as FeedbackRecord;
+    expect(stored.secid).toBe("secid:entity/newvendor.com");
+    expect(stored.message).toContain("NewVendor");
+  });
+
+  it("defaults suggested_urls to [] and still returns a record without KV", async () => {
+    const rec = await recordFeedback(undefined, {
+      category: "correction",
+      secid: "secid:advisory/example.com/x",
+      message: "URL is dead",
+    });
+    expect(rec.suggested_urls).toEqual([]);
+    expect(rec.id).toMatch(UUID_V7_REGEX);
   });
 });

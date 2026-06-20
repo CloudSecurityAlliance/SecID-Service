@@ -1,17 +1,36 @@
-// ── Feedback: missed-namespace capture ──
-// When a well-formed query names a type+namespace that isn't in the registry,
-// we record it here so we have a ranked backlog of the most-requested sources
-// we don't yet cover — demand signal even from callers who never submit.
+// ── Feedback (secid_FEEDBACK KV) ──
+// Two key families, both AI-to-AI by design (intake is MCP-only — no web forms):
 //
-// Aggregated by key (miss:<type>/<namespace>), NOT one row per request, so the
-// number of KV writes is bounded by *distinct* missed namespaces rather than
-// request volume — a bot hammering random namespaces can't blow the KV quota,
-// and the stored shape is already the thing we want ("namespace X, requested N
-// times") rather than a pile of events to tally later.
+//   miss:<type>/<namespace>   Passive capture. When a well-formed query names a
+//                             type+namespace that isn't registered, we aggregate
+//                             a demand signal. Keyed by namespace (not per
+//                             request) so KV writes are bounded by *distinct*
+//                             missed namespaces — a bot can't blow the quota,
+//                             and the stored shape is already "namespace X,
+//                             requested N times".
 //
-// Stored in the secid_FEEDBACK KV namespace. Inspect with:
+//   feedback:<uuid>           Active submission via the submit_feedback MCP tool.
+//                             One row per submission (free-text message), so
+//                             these are individual events, not aggregated.
+//
+// Inspect with:
 //   wrangler kv key list --binding secid_FEEDBACK --prefix miss:
+//   wrangler kv key list --binding secid_FEEDBACK --prefix feedback:
 //   wrangler kv key get  --binding secid_FEEDBACK "miss:entity/example.com"
+
+import { uuidv7 } from "./observability";
+
+export type FeedbackCategory = "missing-namespace" | "correction" | "suggestion";
+
+export interface FeedbackRecord {
+  id: string;
+  category: FeedbackCategory;
+  secid: string;
+  message: string;
+  suggested_urls: string[];
+  timestamp: string;
+  source: "mcp";
+}
 
 export interface MissRecord {
   type: string;
@@ -71,4 +90,33 @@ export async function recordMiss(
     // Never let feedback capture affect the response path.
     console.error("[secid-feedback] KV write failed:", err);
   }
+}
+
+/**
+ * Record active feedback submitted by an MCP client (the submit_feedback tool).
+ * One row per submission under feedback:<uuid>. Returns the feedback id so the
+ * tool can echo it to the caller. Unlike recordMiss this is awaited and its
+ * success is surfaced — the agent asked us to record something.
+ */
+export async function recordFeedback(
+  kv: KVNamespace | undefined,
+  input: { category: FeedbackCategory; secid: string; message: string; suggested_urls?: string[] }
+): Promise<FeedbackRecord> {
+  const record: FeedbackRecord = {
+    id: uuidv7(),
+    category: input.category,
+    secid: input.secid,
+    message: input.message,
+    suggested_urls: input.suggested_urls ?? [],
+    timestamp: new Date().toISOString(),
+    source: "mcp",
+  };
+
+  if (!kv) {
+    console.log("[secid-feedback] feedback (no KV):", JSON.stringify(record));
+    return record;
+  }
+
+  await kv.put(`feedback:${record.id}`, JSON.stringify(record));
+  return record;
 }

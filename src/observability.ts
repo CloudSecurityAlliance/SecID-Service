@@ -28,6 +28,7 @@ export type CodePath =
   | "mcp.tool.resolve"
   | "mcp.tool.lookup"
   | "mcp.tool.describe"
+  | "mcp.tool.submit_feedback"
   | "mcp.transport"
   | "global";
 
