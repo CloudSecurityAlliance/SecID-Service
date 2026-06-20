@@ -559,13 +559,56 @@ function lookupRangeTable(
 
 // ── URL Template Substitution ──
 
-function buildUrl(
+// Schemes a resolved URL may use. http: is accepted only when the template
+// itself declared it (checked below); https: is always allowed.
+const ALLOWED_URL_SCHEMES = new Set(["https:", "http:"]);
+
+/**
+ * Parse a template's literal authority by replacing every {placeholder} with an
+ * inert token, so new URL() can read its intended scheme/host. Returns null for
+ * a non-absolute template (or one whose scheme/host is itself a placeholder).
+ */
+function parseTemplateUrl(template: string): URL | null {
+  try {
+    return new URL(template.replace(/\{[^}]*\}/g, "x"));
+  } catch {
+    return null;
+  }
+}
+
+export function buildUrl(
   template: string,
   variables: Record<string, string>
-): string {
+): string | null {
+  const templateUrl = parseTemplateUrl(template);
+
   let url = template;
   for (const [key, value] of Object.entries(variables)) {
     url = url.replaceAll(`{${key}}`, value);
+  }
+
+  // Non-absolute template (no literal scheme/host to enforce): emit as-is.
+  if (!templateUrl) return url;
+
+  // Re-parse the substituted result and require that substitution did not
+  // change the scheme or authority of the template — that is the open-redirect
+  // primitive. Path/query content on the template's own host is left intact
+  // (identifiers legitimately contain ':' and other reserved chars). Fail
+  // closed on a scheme/host/userinfo change or an unparseable result.
+  let resultUrl: URL;
+  try {
+    resultUrl = new URL(url);
+  } catch {
+    return null;
+  }
+  if (resultUrl.protocol !== templateUrl.protocol) return null;
+  if (!ALLOWED_URL_SCHEMES.has(resultUrl.protocol)) return null;
+  if (
+    resultUrl.host !== templateUrl.host ||
+    resultUrl.username !== templateUrl.username ||
+    resultUrl.password !== templateUrl.password
+  ) {
+    return null;
   }
   return url;
 }

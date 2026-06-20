@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSecID } from "../src/parser";
-import { resolve } from "../src/resolver";
+import { resolve, buildUrl } from "../src/resolver";
 import { REGISTRY } from "../src/registry";
 import type { ResolutionResult, RegistryResult, ResolveResponse, MatchNode, ExampleObject } from "../src/types";
 
@@ -320,3 +320,32 @@ function extractTestNameSlug(node: MatchNode): string {
   }
   return node.description.toLowerCase().replace(/\s+/g, "-");
 }
+
+// ── Resolver-side URL validation (F-01-01) ──
+// buildUrl must encode user-derived values and refuse to emit a URL whose
+// scheme/authority differs from the template's literal scheme/host.
+
+describe("buildUrl URL validation (F-01-01)", () => {
+  it("substitutes a normal path-position {id}, host unchanged", () => {
+    expect(buildUrl("https://www.cve.org/CVERecord?id={id}", { id: "CVE-2021-44228" }))
+      .toBe("https://www.cve.org/CVERecord?id=CVE-2021-44228");
+  });
+
+  it("preserves reserved characters in identifiers on the template's own host", () => {
+    // RHSA IDs contain a colon — it must NOT be mangled (regression guard).
+    expect(buildUrl("https://access.redhat.com/errata/{id}", { id: "RHSA-2024:1234" }))
+      .toBe("https://access.redhat.com/errata/RHSA-2024:1234");
+    // Extra path/query content on the same host is allowed (not an open redirect).
+    expect(buildUrl("https://host.example/{id}", { id: "a/b:c?d=e" }))
+      .toBe("https://host.example/a/b:c?d=e");
+  });
+
+  it("drops a result when substitution changes the host (authority injection)", () => {
+    expect(buildUrl("https://{id}.example.com/", { id: "evil.com" })).toBeNull();
+    expect(buildUrl("https://{id}/path", { id: "evil.com" })).toBeNull();
+  });
+
+  it("passes a non-absolute template through unchanged", () => {
+    expect(buildUrl("/relative/{id}", { id: "x y" })).toBe("/relative/x y");
+  });
+});
