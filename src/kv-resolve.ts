@@ -1,6 +1,6 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
-import { resolve, buildSubmissionUrl } from "./resolver";
+import { resolve } from "./resolver";
 import { recordMiss } from "./feedback";
 import {
   isResolutionResult,
@@ -29,9 +29,9 @@ import {
  */
 /**
  * Optional hook for capturing namespace-level misses. When provided, a
- * `not_found` carrying a `submission_url` (i.e. a recognized type + a
- * namespace that isn't registered) is recorded to the feedback KV. Passing
- * `waitUntil` keeps the KV write off the response path.
+ * `not_found` whose namespace isn't in the type index (a recognized type +
+ * an unregistered namespace) is recorded to the feedback KV as a `miss:` key.
+ * Passing `waitUntil` keeps the KV write off the response path.
  */
 export interface MissCapture {
   feedbackKv?: KVNamespace;
@@ -149,9 +149,7 @@ export async function resolveFromKV(
     !typeIndex.namespaces.some((n) => n.namespace === parsed.namespace);
 
   if (isNamespaceMiss) {
-    const submissionUrl = buildSubmissionUrl(type, parsed.namespace!);
-    result.submission_url = submissionUrl;
-    result.message = `Namespace "${parsed.namespace}" not found in type "${type}". Submit it at ${submissionUrl}`;
+    result.message = `Namespace "${parsed.namespace}" not found in type "${type}". MCP clients can request it with the submit_feedback tool.`;
 
     if (capture?.feedbackKv) {
       const write = recordMiss(capture.feedbackKv, type, parsed.namespace!, input);

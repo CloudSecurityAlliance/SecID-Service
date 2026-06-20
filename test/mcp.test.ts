@@ -296,7 +296,10 @@ describe("MCP end-to-end flow", () => {
     const { body: toolsBody } = await mcpPost(jsonrpc("tools/list", {}, 2));
     const toolsResp = toolsBody as { result?: { tools: Array<{ name: string; description: string; inputSchema: unknown }> } };
     const tools = toolsResp.result!.tools;
-    expect(tools.length).toBe(3);
+    expect(tools.length).toBe(4);
+    expect(tools.map((t) => t.name).sort()).toEqual(
+      ["describe", "lookup", "resolve", "submit_feedback"]
+    );
 
     // Verify resolve tool has correct input schema
     const resolveTool = tools.find((t) => t.name === "resolve");
@@ -317,6 +320,23 @@ describe("MCP end-to-end flow", () => {
     expect(resolveData.status).toBe("found");
     expect(resolveData.results[0].url).toContain("cve.org");
     expect(resolveData.results[0].url).toContain("CVE-2021-44228");
+
+    // Step 5: Call submit_feedback tool
+    const { body: fbBody } = await mcpPost(
+      jsonrpc("tools/call", {
+        name: "submit_feedback",
+        arguments: {
+          category: "missing-namespace",
+          secid: "secid:entity/newvendor.example",
+          message: "Please add NewVendor.",
+        },
+      }, 4)
+    );
+    const fbResp = fbBody as { result?: { content: Array<{ type: string; text: string }> } };
+    const fbData = JSON.parse(fbResp.result!.content[0].text);
+    expect(fbData.status).toBe("received");
+    expect(fbData.feedback_id).toBeDefined();
+    expect(fbData.category).toBe("missing-namespace");
   });
 
   it("full session: initialize, resources/list, resources/read", async () => {

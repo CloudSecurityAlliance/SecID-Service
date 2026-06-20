@@ -95,16 +95,14 @@ describe("resolveFromKV", () => {
     expect((result.results[0] as { url: string }).url).toContain("cve.org");
   });
 
-  it("namespace-level miss returns submission_url (KV flow, empty partial registry)", async () => {
+  it("namespace-level miss returns not_found with a clear message (KV flow, empty partial registry)", async () => {
     const result = await resolveFromKV(
       env.secid_REGISTRY,
       "secid:advisory/definitely-not-registered-zzz.example/x#Y-1"
     );
     expect(result.status).toBe("not_found");
-    expect(result.submission_url).toBeDefined();
-    expect(result.submission_url).toContain("template=add-namespace.yml");
-    expect(result.submission_url).toContain("namespace=definitely-not-registered-zzz.example");
     expect(result.message).toContain("not found");
+    expect(result.message).toContain("submit_feedback");
   });
 
   it("resolves type-only listing with metadata", async () => {

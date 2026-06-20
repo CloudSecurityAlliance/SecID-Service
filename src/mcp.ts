@@ -2,6 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { resolveFromKV, type MissCapture } from "./kv-resolve";
+import { recordFeedback } from "./feedback";
 import { RegistryContext } from "./kv-registry";
 import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
@@ -245,7 +246,9 @@ STATUS VALUES:
   found     — exact match, results contain URLs
   corrected — server fixed the input (e.g. moved identifier to correct subpath), results contain URLs
   related   — partial match, results contain registry data (may need @version)
-  not_found — nothing matched, message explains why
+  not_found — nothing matched, message explains why. If a source/org that should
+              exist is missing, call the submit_feedback tool (category
+              "missing-namespace") — that is how new sources get requested.
   error     — unparseable input, message explains how to fix
 
 TWO RESULT TYPES (check which fields are present):
@@ -376,6 +379,23 @@ RESPONSE: Same envelope — { secid_query, status, results[] }
 Results contain { secid, data } with registry metadata (official_name, patterns, examples, urls).
 
 Use this to help users construct valid SecID strings or to explore what the registry covers.`;
+
+const SUBMIT_FEEDBACK_DESCRIPTION = `Submit feedback to the SecID registry. This is the ONLY feedback channel — SecID intake is MCP-only by design (AI/MCP clients, no web forms).
+
+WHEN TO USE:
+  - A query returned not_found for a source/org that clearly should exist → category "missing-namespace"
+  - You found incorrect data (wrong URL, outdated contact, bad pattern, mis-named entry) → category "correction"
+  - Anything else worth telling the maintainers → category "suggestion"
+
+Call this proactively when you hit a gap or an error in the data — don't tell the user to "open an issue" or "fill out a form"; there is no form. You are the feedback channel.
+
+ARGUMENTS:
+  category       one of: missing-namespace | correction | suggestion
+  secid          the SecID this is about (the closest you have, even if it didn't resolve)
+  message        what's missing/wrong/suggested, with evidence
+  suggested_urls optional supporting URLs (homepage, advisory feed, the correct link)
+
+RESPONSE: { status: "received", feedback_id, category, secid }. Submissions are stored for AI-assisted triage; they do not change the registry immediately.`;
 
 function createMcpServer(
   kv: KVNamespace | undefined,
@@ -631,36 +651,98 @@ function createMcpServer(
     })
   );
 
+  // ── Tool: submit_feedback ──
+  // The single feedback intake for SecID. Intake is MCP-only by design —
+  // there is no web form. AI/MCP clients call this to request a missing
+  // source, flag wrong data, or suggest an improvement; submissions land in
+  // secid_FEEDBACK (feedback:<uuid>) for later AI-assisted triage.
+  server.tool(
+    "submit_feedback",
+    SUBMIT_FEEDBACK_DESCRIPTION,
+    {
+      category: z
+        .enum(["missing-namespace", "correction", "suggestion"])
+        .describe(
+          "missing-namespace = a source/org that should be in the registry but isn't (e.g. after a not_found); correction = existing data is wrong (bad URL, wrong name, broken pattern); suggestion = anything else"
+        ),
+      secid: z
+        .string()
+        .describe(
+          "The SecID this feedback is about — e.g. 'secid:entity/example.com' or 'secid:advisory/vendor.com/alerts'. Use the closest SecID you have, even if it didn't resolve."
+        ),
+      message: z
+        .string()
+        .describe("What is missing, wrong, or suggested — with any supporting detail or evidence."),
+      suggested_urls: z
+        .array(z.string())
+        .optional()
+        .describe("Optional supporting URLs (homepage, advisory feed, docs, the correct link)."),
+    },
+    async ({ category, secid, message, suggested_urls }) => {
+      try {
+        const rec = await recordFeedback(capture?.feedbackKv, {
+          category,
+          secid,
+          message,
+          suggested_urls,
+        });
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "received",
+              feedback_id: rec.id,
+              category: rec.category,
+              secid: rec.secid,
+              message: "Thanks — recorded for triage. SecID feedback is AI/MCP-only; this is the right channel.",
+            }, null, 2),
+          }],
+        };
+      } catch (err) {
+        const entry = buildErrorEntry("mcp.tool.submit_feedback", secid, err, req);
+        const errorId = await recordError(kv, entry);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              message: `Could not record feedback. Reference: ${errorId}`,
+              error_id: errorId,
+            }),
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
   // ── Resource: feedback and support ──
   server.resource(
     "docs-feedback",
     "secid://docs/feedback",
-    { description: "How to report issues, request new namespaces, give feedback, or contribute to the SecID registry. Read this if a query returned not_found for a source that should be covered, or if you found incorrect data." },
+    { description: "How to give feedback on SecID (request a missing source, report incorrect data, or suggest improvements). Feedback intake is MCP-only — use the submit_feedback tool. Read this if a query returned not_found for a source that should be covered, or if you found incorrect data." },
     async () => ({
       contents: [{
         uri: "secid://docs/feedback",
         mimeType: "text/markdown",
         text: `# SecID Feedback & Support
 
-## Report Issues or Request New Sources
+## How to give feedback
 
-**GitHub Issues:** https://github.com/CloudSecurityAlliance/SecID/issues
+Feedback intake is **MCP-only** — there is no web form or issue queue to point
+people at. Use the **submit_feedback** tool:
 
-Use this to:
-- Request a new namespace (e.g., "please add vendor X's advisory database")
-- Report incorrect data (wrong URLs, outdated contacts, bad patterns)
-- Report a bug in the resolver or MCP server
-- Suggest improvements
+- Request a missing source/org → category "missing-namespace"
+- Report incorrect data (wrong URLs, outdated contacts, bad patterns) → category "correction"
+- Suggest an improvement → category "suggestion"
 
-## Contributing
+If a query returns not_found for something that should exist, call submit_feedback
+yourself with what you were looking for — you are the feedback channel.
 
-The SecID registry is open source. Adding a new source is a single JSON file.
+Submissions are recorded for AI-assisted triage; they do not change the registry
+immediately.
 
-- **Registry repo:** https://github.com/CloudSecurityAlliance/SecID
-- **Service repo:** https://github.com/CloudSecurityAlliance/SecID-Service
-- **How to add a namespace:** https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/guides/ADD-NAMESPACE.md
-
-## Specification
+## Specification & source (read-only references)
 
 - **SecID spec:** https://github.com/CloudSecurityAlliance/SecID/blob/main/SPEC.md
 - **Registry format:** https://github.com/CloudSecurityAlliance/SecID/blob/main/docs/reference/REGISTRY-JSON-FORMAT.md
