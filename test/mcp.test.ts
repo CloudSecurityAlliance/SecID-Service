@@ -143,7 +143,9 @@ describe("MCP tool handlers", () => {
       const data = JSON.parse(resp.result!.content[0].text);
       expect(data.status).toBe("found");
       expect(data.results.length).toBe(1);
-      expect(data.results[0].data.official_name).toBeDefined();
+      // F-04-01: contributor free-text (official_name) is relocated under the
+      // labeled untrusted envelope before crossing the MCP boundary.
+      expect(data.results[0].data.registry_text_untrusted.official_name).toBeDefined();
     });
 
     it("strips subpath when present", async () => {
@@ -166,7 +168,9 @@ describe("MCP tool handlers", () => {
       expect(data.status).toBe("found");
       expect(data.results.length).toBe(1);
       const result = data.results[0].data;
-      expect(result.description).toBeDefined();
+      // F-04-01: description (contributor prose) moves under the untrusted
+      // envelope; structural keys (namespace_count, namespaces) stay in place.
+      expect(result.registry_text_untrusted.description).toBeDefined();
       expect(result.namespace_count).toBeGreaterThan(10);
       expect(result.namespaces.length).toBeGreaterThan(10);
     });

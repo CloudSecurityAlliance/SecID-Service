@@ -1,6 +1,6 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
-import { resolve } from "./resolver";
+import { resolve, MAX_REGEX_INPUT_CHARS } from "./resolver";
 import { recordMiss } from "./feedback";
 import {
   isResolutionResult,
@@ -233,6 +233,7 @@ function findMatchingNamespaces(
   identifier: string,
   childIndex: ChildIndexEntry[]
 ): string[] {
+  if (identifier.length > MAX_REGEX_INPUT_CHARS) return []; // ReDoS bound
   const matched = new Set<string>();
   for (const entry of childIndex) {
     for (const pat of entry.patterns) {
@@ -278,7 +279,7 @@ async function searchBareIdentifier(
   input: string
 ): Promise<ResolveResponse | null> {
   const trimmed = input.trim();
-  if (!trimmed) return null;
+  if (!trimmed || trimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
 
   // Single KV read: combined index across all types
   const globalIndex = await ctx.getGlobalIndex();
