@@ -13,6 +13,14 @@ import type {
 } from "./types";
 import { SECID_TYPES } from "./types";
 
+// ReDoS runtime bound. Registry-authored patterns (patterns[], variables.*.extract)
+// run against attacker-controlled input via JS RegExp — no RE2, no timeout.
+// Catastrophic backtracking is super-linear in input size, so capping input
+// length is the minimal stopgap. Real SecID components are well under this;
+// over-long input is treated as no-match (not truncated), so valid resolution
+// is unaffected. The query as a whole is already capped in mcp.ts.
+export const MAX_REGEX_INPUT_CHARS = 256;
+
 // ── Main Entry Point ──
 
 export function resolve(
@@ -498,6 +506,7 @@ function extractVariable(
   subpath: string,
   parentNotes: string | null
 ): string | null {
+  if (subpath.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
   const re = toRegExp(varDef.extract);
   const match = subpath.match(re);
   if (!match || !match[1]) return null;
@@ -763,6 +772,7 @@ function findMatchingNode(
 }
 
 function matchesAnyPattern(patterns: string[], input: string): boolean {
+  if (input.length > MAX_REGEX_INPUT_CHARS) return false; // ReDoS bound
   for (const pat of patterns) {
     try {
       if (toRegExp(pat).test(input)) return true;
