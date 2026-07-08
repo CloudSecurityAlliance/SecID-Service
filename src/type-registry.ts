@@ -62,13 +62,18 @@ export const TYPE_REGISTRY: readonly TypeDef[] = [
     type: "disclosure",
     short: "Vulnerability disclosure programs, policies, reporting channels",
     long: "Vulnerability disclosure programs — CVE Numbering Authorities, PSIRTs, bug bounty programs, security.txt entries, and policy documents. Tells researchers how and where to report.",
-    subtypes: [],
+    subtypes: [
+      { value: "coordinator", description: "A neutral coordinated-vulnerability-disclosure body that routes reports between finders and affected vendors — CERT/CC, national CSIRTs, and shared SIRTs (e.g., FIRST, JPCERT/CC, Akrites). Distinct from a vendor's own PSIRT and from a CNA (composes with the structured cve.role field)." },
+      { value: "psirt", description: "A vendor's own Product Security Incident Response Team program — receives and coordinates vulnerability reports for that vendor's own products. Distinct from a neutral coordinator and from a CVE Numbering Authority." },
+    ],
   },
   {
     type: "entity",
     short: "Organizations, products, services",
     long: "Organizations (Microsoft, NIST, ISO), products (Office 365, AWS S3), and services. Identity records — cited as anchors by other types.",
-    subtypes: [],
+    subtypes: [
+      { value: "consortium", description: "A multi-organization collaborative body — a consortium, coalition, alliance, or foundation formed by multiple member organizations (e.g., CoSAI, Akrites, MOSAIC, OpenSSF). Refines the organization form; composes with product/service tags if those are later added." },
+    ],
   },
   {
     type: "methodology",
