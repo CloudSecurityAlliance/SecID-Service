@@ -319,6 +319,18 @@ async function searchBareIdentifier(
     }
   }
 
+  // Namespace identity matches — the user typed an org or programme name that
+  // no source slug would surface (e.g. "ismap", whose only source is called
+  // "control-criteria"). Selecting the namespace here is enough; the resolver's
+  // own identity check turns it into a result.
+  const needle = trimmed.toLowerCase();
+  for (const entry of globalIndex.name_index ?? []) {
+    if (!entry.aliases.includes(needle)) continue;
+    const type = entry.type as SecIDType;
+    if (!childMatchesByType.has(type)) childMatchesByType.set(type, new Set());
+    childMatchesByType.get(type)!.add(entry.namespace);
+  }
+
   if (sourceMatches.length === 0 && childMatchesByType.size === 0) return null;
 
   // Resolve source-level matches: each becomes a fully-qualified query

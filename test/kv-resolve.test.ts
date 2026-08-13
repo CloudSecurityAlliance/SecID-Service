@@ -155,6 +155,16 @@ describe("resolveFromKV", () => {
     expect(secids.some((s) => s === "secid:weakness/mitre.org/cwe")).toBe(true);
   });
 
+  it("finds a namespace by its common_name, not just by source slug", async () => {
+    // fedramp.gov's sources are named "baselines" and "marketplace", so the
+    // string "fedramp" appears only in the namespace domain and common_name.
+    // Without identity indexing the namespace is unreachable by its own name.
+    const result = await resolveFromKV(env.secid_REGISTRY, "fedramp");
+    expect(result.status).toBe("found");
+    const secids = result.results.map((r) => (r as { secid: string }).secid);
+    expect(secids).toContain("secid:control/fedramp.gov");
+  });
+
   it("finds source-level match for bare name (capec)", async () => {
     const result = await resolveFromKV(env.secid_REGISTRY, "capec");
     expect(result.status).toBe("found");

@@ -78,6 +78,12 @@ export interface MatchNodeData {
   lang?: LangConfig;     // Language availability and URL substitution config
   type?: string;
   note?: string;
+  /**
+   * Enumeration of the identifiers this node accepts, id → title. Treated as a
+   * closed set only when `patterns` is open (see isOpenPattern) — several
+   * registry entries pair a tight pattern with a deliberately partial list.
+   */
+  known_values?: Record<string, string>;
   variables?: Record<string, VariableDefinition>;
   lookup_table?: Record<string, string | LookupTableEntry>;
 
@@ -178,8 +184,21 @@ export interface GlobalChildIndexEntry extends ChildIndexEntry {
   type: SecIDType;
 }
 
+/**
+ * Namespace identity entry — lets free-text search find a namespace by the name
+ * people actually type (its domain label or declared names) rather than only by
+ * a source slug. `aliases` are pre-lowercased for exact comparison.
+ */
+export interface NameIndexEntry {
+  type: string;
+  namespace: string;
+  aliases: string[];
+}
+
 export interface GlobalIndex {
   child_index: GlobalChildIndexEntry[];
+  /** Absent on deploys predating identity search — callers must tolerate that. */
+  name_index?: NameIndexEntry[];
 }
 
 export interface RegistryMeta {
