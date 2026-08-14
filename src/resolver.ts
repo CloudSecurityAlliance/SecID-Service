@@ -801,7 +801,23 @@ function findMatchingNode(
 // Namespace identity matches rank just below an exact source-name match.
 const NAMESPACE_IDENTITY_WEIGHT = 90;
 
-const OPEN_PATTERN_SENTINELS = ["qxzjvwk", "Qx9Zjvwk7"];
+// Coverage matters as much as content, and the first version of this list got
+// that wrong: every token was long and lower/mixed-case, so ^[A-Z&]{2,3}$ could
+// not match one and was never recognised as open. Nothing then enforced the 17
+// enumerated CCM domains, and secid:control/FOO returned seven fabricated
+// results in production. A sentinel only tests the patterns whose length and
+// character class it can actually reach, so short all-uppercase, short
+// all-lowercase, and punctuated forms all have to be present.
+//
+// Keep in step with scripts/pattern-probes.json in the SecID repo — the registry
+// gate and this resolver must agree on what "open" means, or a pattern passes CI
+// and then behaves differently in production.
+const OPEN_PATTERN_SENTINELS = [
+  "qxzjvwk", "Qx9Zjvwk7", "zzqqxxjj", "Zq7Xv9Kw", "wkqzjxvq",
+  "QZX", "XQ", "ZQJ", "QQ9", "QZXJ",
+  "qzx", "zj", "qqj",
+  "ZQ.XJ", "QZX-99",
+];
 
 const openPatternCache = new Map<string, boolean>();
 
@@ -842,8 +858,22 @@ function isOpenPattern(patterns: string[]): boolean {
  * `scoped` is true when the caller already named the namespace, which is what
  * keeps genuinely unbounded spaces (GitHub usernames, paper slugs) resolvable.
  */
+/**
+ * Is this node's identifier space unbounded — either because the registry says
+ * so, or because the pattern demonstrably accepts anything?
+ *
+ * Both halves are load-bearing and neither subsumes the other. Detection catches
+ * patterns nobody declared, including ones added after this code shipped.
+ * Declaration catches patterns detection cannot see: `^\d+$` accepts every
+ * integer, yet matches no nonsense token, because every sentinel contains
+ * letters. Only the registry can say that space is open.
+ */
+function isNodeOpen(node: MatchNode): boolean {
+  return node.open_pattern === true || isOpenPattern(node.patterns);
+}
+
 function nodeMatches(node: MatchNode, input: string, scoped: boolean): boolean {
-  if (isOpenPattern(node.patterns)) {
+  if (isNodeOpen(node)) {
     const known = node.data?.known_values;
     if (known) return Object.prototype.hasOwnProperty.call(known, input);
     if (!scoped) return false;

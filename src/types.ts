@@ -114,6 +114,17 @@ export interface MatchNode {
   weight: number;
   data: MatchNodeData;
   children?: MatchNode[];
+  /**
+   * The registry declaring that this identifier space is genuinely unbounded
+   * (GitHub usernames, Jira project keys, conference paper slugs) and the
+   * permissive pattern is intentional. Such nodes are excluded from unscoped
+   * cross-source search — an unbounded pattern cannot tell a real identifier
+   * from an arbitrary search term — while namespace-scoped resolution still
+   * works. Absent means "expected to discriminate"; see
+   * scripts/check-pattern-breadth.py in the SecID repo, which fails an
+   * undeclared open pattern.
+   */
+  open_pattern?: boolean;
 }
 
 export interface RegistryNamespace {

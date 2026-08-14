@@ -88,8 +88,9 @@ const GITHUB_USERS = ns({
   ],
 });
 
-// Tight pattern + deliberately INCOMPLETE known_values (mirrors CSA AICM,
-// which lists 1 of ~18 domains). The regex must stay authoritative here.
+// TIGHT pattern + deliberately incomplete known_values. A literal-prefixed
+// pattern validates on its own, so the enumeration must not close it — several
+// registry entries list only a subset of real IDs.
 const AICM = ns({
   namespace: "example.org",
   official_name: "AICM Example",
@@ -101,12 +102,12 @@ const AICM = ns({
       data: {},
       children: [
         {
-          patterns: ["^[A-Z&]{2,3}$"],
+          patterns: ["^AICM-[A-Z]{3}$"],
           description: "AICM domain",
           weight: 100,
           data: {
             url: "https://example.org/aicm/{id}",
-            known_values: { MDS: "Model Security" },
+            known_values: { "AICM-MDS": "Model Security" },
           },
         },
       ],
@@ -114,8 +115,54 @@ const AICM = ns({
   ],
 });
 
+// Short uppercase wildcard closed by an enumeration. This is the shape that
+// made secid:control/FOO return seven fabricated results in production: loose
+// enough to admit garbage, but too short for a long-token sentinel to detect.
+const CCM = ns({
+  namespace: "ccm.example.org",
+  official_name: "Control Matrix",
+  match_nodes: [
+    {
+      patterns: ["(?i)^ccm$"],
+      description: "Control Matrix",
+      weight: 100,
+      data: {},
+      children: [
+        {
+          patterns: ["^[A-Z&]{2,3}$"],
+          description: "Control domain",
+          weight: 100,
+          data: {
+            url: "https://ccm.example.org/{id}",
+            known_values: { IAM: "Identity", "A&A": "Audit" },
+          },
+        },
+      ],
+    },
+  ],
+});
+
+// Unbounded in practice but invisible to any nonsense token: every sentinel
+// contains letters, so ^\d+$ matches none of them. Only a declaration can say
+// this space is open.
+const TICKETS = ns({
+  namespace: "tickets.example.org",
+  type: "advisory",
+  official_name: "Ticket Tracker",
+  match_nodes: [
+    {
+      patterns: ["^\\d+$"],
+      description: "Ticket number",
+      weight: 100,
+      open_pattern: true,
+      data: { url: "https://tickets.example.org/{id}" },
+    },
+  ],
+});
+
 const REG: Registry = {
-  control: { "ismap.go.jp": ISMAP, "example.org": AICM },
+  control: { "ismap.go.jp": ISMAP, "example.org": AICM, "ccm.example.org": CCM },
+  advisory: { "tickets.example.org": TICKETS },
   reference: { "cloudsecurityalliance.org": CSA, "github.com/users": GITHUB_USERS },
 } as unknown as Registry;
 
@@ -190,11 +237,22 @@ describe("known_values enforcement", () => {
   });
 
   it("leaves a tight pattern authoritative when known_values is incomplete", () => {
-    // AICM lists only MDS but the real matrix has ~18 domains; AIS must resolve.
-    const res = run("secid:control/example.org/aicm#AIS");
-    expect(urlOf(res, "secid:control/example.org/aicm#AIS")).toBe(
-      "https://example.org/aicm/AIS"
+    // The list holds only AICM-MDS, but the pattern's literal prefix is doing
+    // real validation, so AICM-AIS must still resolve.
+    const res = run("secid:control/example.org/aicm#AICM-AIS");
+    expect(urlOf(res, "secid:control/example.org/aicm#AICM-AIS")).toBe(
+      "https://example.org/aicm/AICM-AIS"
     );
+  });
+
+  it("closes an OPEN pattern even when its enumeration is incomplete", () => {
+    // This is the uncomfortable half of the rule and it is deliberate. An open
+    // pattern validates nothing, so the enumeration is all there is — and if
+    // that list is short, real identifiers stop resolving. The fix belongs in
+    // the registry (enumerate the pattern, complete the list), not here: see
+    // SecID#157, which converted exactly these nodes to alternations.
+    const res = run("secid:control/ccm.example.org/ccm#ZZZ");
+    expect(urlOf(res, "secid:control/ccm.example.org/ccm#ZZZ")).toBeUndefined();
   });
 });
 
@@ -218,5 +276,47 @@ describe("open patterns in cross-source search", () => {
     // the ^.+$ class of bug: a CVE id must not resolve as a control
     const res = run("secid:control/CVE-2021-44228");
     expect(res.status).toBe("not_found");
+  });
+});
+
+// ── D. Gaps found after the first pass ──
+
+describe("short wildcards closed by an enumeration", () => {
+  it("rejects a non-member of a short uppercase wildcard", () => {
+    // the secid:control/FOO bug — ^[A-Z&]{2,3}$ admits FOO, and no long-token
+    // sentinel is short enough to reveal that the pattern is open
+    const res = run("secid:control/FOO");
+    expect(secids(res)).not.toContain("secid:control/ccm.example.org/ccm#FOO");
+  });
+
+  it("still resolves a member of the enumeration", () => {
+    const res = run("secid:control/IAM");
+    expect(urlOf(res, "secid:control/ccm.example.org/ccm#IAM")).toBe(
+      "https://ccm.example.org/IAM"
+    );
+  });
+
+  it("resolves a member containing an ampersand", () => {
+    const res = run("secid:control/ccm.example.org/ccm#A&A");
+    expect(urlOf(res, "secid:control/ccm.example.org/ccm#A&A")).toBe(
+      "https://ccm.example.org/A&A"
+    );
+  });
+});
+
+describe("declared open_pattern", () => {
+  it("excludes a declared-open node from unscoped search", () => {
+    // ^\d+$ is unbounded but matches no nonsense token, so detection alone
+    // cannot find it — the registry has to say so. Assert on the namespace,
+    // not an exact secid: a non-literal patterns[0] makes the slug come from
+    // the description, so the id never appears in the emitted string.
+    const res = run("secid:advisory/12345");
+    expect(secids(res).filter((s) => s.includes("tickets.example.org"))).toEqual([]);
+  });
+
+  it("still resolves a declared-open node when the namespace is given", () => {
+    const res = run("secid:advisory/tickets.example.org/12345");
+    expect(res.status).toBe("found");
+    expect(res.results.length).toBeGreaterThan(0);
   });
 });
