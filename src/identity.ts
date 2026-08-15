@@ -22,13 +22,54 @@ export interface NamespaceIdentity {
   alternate_names?: string[] | null;
 }
 
-/** Lowercased aliases for a namespace, deduped. */
+/**
+ * Second-level labels that are part of a public suffix rather than a name —
+ * the `go` in `ismap.go.jp`, the `gov` in `uidai.gov.in`, the `co` in a
+ * `co.uk`. The final label (the TLD) is always dropped, so this list only
+ * needs the second-level cases.
+ *
+ * Dropping these is what makes label indexing safe. Across the registry `com`
+ * appears in 707 namespaces, `org` in 171 and `gov` in 93 — indexing them
+ * would make a single query match most of the registry, which is the failure
+ * this whole search-quality effort exists to remove.
+ */
+const PUBLIC_SUFFIX_LABELS = new Set([
+  "co", "com", "org", "net", "gov", "edu", "ac", "go", "or", "ne", "gr", "lg",
+  "gob", "gouv", "govt", "mil", "int",
+]);
+
+/**
+ * Lowercased aliases for a namespace, deduped.
+ *
+ * Every domain label except public-suffix components, every path segment, the
+ * full domain, and the declared names. `aws.amazon.com` is findable by `aws`
+ * and `amazon`; `amazon.com/aws/s3` by `aws` and `s3`, which are otherwise
+ * unsearchable — 68 namespaces carry a path segment.
+ *
+ * Matching stays exact and token-based. Substring matching was considered and
+ * rejected: `security` as a token matches 11 namespaces, but as a substring it
+ * would also hit `cloudsecurityalliance.org` and `security-tracker.debian.org`,
+ * reintroducing the noise that made searching "ismap" return 19 results.
+ */
 export function namespaceAliases(
   nsKey: string,
   ns: NamespaceIdentity
 ): string[] {
-  const domain = nsKey.split("/")[0];
-  const candidates = [domain.split(".")[0], domain];
+  const [domain, ...pathSegments] = nsKey.split("/");
+
+  const labels = domain.split(".");
+  // The last label is always a TLD, so it never survives. The FIRST label is
+  // always kept, even when it looks like a suffix: it is the namespace's
+  // identity. go.dev is the Go project, gov.uk is the UK government, and
+  // nic.gov.sa is Saudi Arabia's National Information Center — stripping their
+  // leading label would leave them findable only by full domain. The stoplist
+  // therefore applies to middle labels only, which is where the damage was:
+  // `gov` occurs in 93 namespaces, nearly all as the middle of x.gov.tld.
+  const meaningful = labels
+    .slice(0, -1)
+    .filter((l, i) => l && (i === 0 || !PUBLIC_SUFFIX_LABELS.has(l.toLowerCase())));
+
+  const candidates = [...meaningful, domain, ...pathSegments];
   if (ns.common_name) candidates.push(ns.common_name);
   if (ns.official_name) candidates.push(ns.official_name);
   if (ns.alternate_names) candidates.push(...ns.alternate_names);
