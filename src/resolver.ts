@@ -822,7 +822,7 @@ const OPEN_PATTERN_SENTINELS = [
 const openPatternCache = new Map<string, boolean>();
 
 /** Does this pattern set accept arbitrary input (e.g. `^.+$`, `^[a-z-]+$`)? */
-function isOpenPattern(patterns: string[]): boolean {
+export function isOpenPattern(patterns: string[]): boolean {
   const key = JSON.stringify(patterns);
   const cached = openPatternCache.get(key);
   if (cached !== undefined) return cached;

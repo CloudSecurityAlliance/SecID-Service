@@ -192,6 +192,13 @@ export interface ChildIndexEntry {
 
 // Combined child_index across all types, stored under KV key "secid:*"
 export interface GlobalChildIndexEntry extends ChildIndexEntry {
+  /**
+   * This node accepts arbitrary input — declared via open_pattern or detected
+   * from the regex. Bare-identifier search skips these: an unbounded pattern
+   * cannot tell a real identifier from a search term. Absent on deploys
+   * predating this field, so callers must fall back to detection.
+   */
+  open?: boolean;
   type: SecIDType;
 }
 

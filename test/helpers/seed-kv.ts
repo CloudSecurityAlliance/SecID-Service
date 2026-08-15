@@ -6,11 +6,13 @@
  */
 
 import { REGISTRY } from "../../src/registry";
-import type { ChildIndexEntry, NameIndexEntry, TypeIndex } from "../../src/types";
+import type { ChildIndexEntry, GlobalChildIndexEntry, NameIndexEntry, TypeIndex } from "../../src/types";
 import { namespaceAliases } from "../../src/identity";
+import { isOpenPattern } from "../../src/resolver";
 import { TYPE_SHORT_DESCRIPTIONS } from "../../src/type-registry";
 
 interface MatchNodeLike {
+  open_pattern?: boolean;
   patterns: string[];
   description: string;
   weight: number;
@@ -35,7 +37,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
   // Combined index across all types — must mirror the production upload script
   // (scripts/upload-registry-kv.ts) so tests exercise the same bare-name and
   // cross-source search paths the live deploy hits.
-  const globalChildIndex: Array<ChildIndexEntry & { type: string; level: "source" | "child" }> = [];
+  const globalChildIndex: GlobalChildIndexEntry[] = [];
   const nameIndex: NameIndexEntry[] = [];
   let total = 0;
 
@@ -84,6 +86,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
           namespace: ns,
           name_slug: nameSlug,
           level: "source",
+          open: node.open_pattern === true || isOpenPattern(node.patterns),
           patterns: node.patterns,
           description: node.description,
           weight: node.weight ?? 100,
@@ -95,6 +98,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
             namespace: ns,
             name_slug: nameSlug,
             level: "child",
+            open: child.open_pattern === true || isOpenPattern(child.patterns),
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
