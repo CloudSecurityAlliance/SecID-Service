@@ -6,7 +6,8 @@
  */
 
 import { REGISTRY } from "../../src/registry";
-import type { ChildIndexEntry, TypeIndex } from "../../src/types";
+import type { ChildIndexEntry, NameIndexEntry, TypeIndex } from "../../src/types";
+import { namespaceAliases } from "../../src/identity";
 import { TYPE_SHORT_DESCRIPTIONS } from "../../src/type-registry";
 
 interface MatchNodeLike {
@@ -35,6 +36,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
   // (scripts/upload-registry-kv.ts) so tests exercise the same bare-name and
   // cross-source search paths the live deploy hits.
   const globalChildIndex: Array<ChildIndexEntry & { type: string; level: "source" | "child" }> = [];
+  const nameIndex: NameIndexEntry[] = [];
   let total = 0;
 
   for (const [type, namespaces] of Object.entries(REGISTRY)) {
@@ -52,9 +54,10 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
     // Build and write secid:{type} key
     const childIndex: ChildIndexEntry[] = [];
     const nsList = nsEntries.map(([ns, data]) => {
-      const nsData = data as {
+      const nsData = data as unknown as {
         official_name: string;
         common_name: string | null;
+        alternate_names?: string[] | null;
         match_nodes: MatchNodeLike[];
       };
       // Build child_index entries (per-type — child level only; matches the
@@ -99,6 +102,11 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
           });
         }
       }
+      nameIndex.push({
+        type,
+        namespace: ns,
+        aliases: namespaceAliases(ns, nsData),
+      });
       // Union of subtype values across all source-level match_nodes — mirrors
       // the production upload script so filter tests can exercise the same
       // shape the live deploy returns.
@@ -131,7 +139,10 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
   }
 
   // Write secid:* (global index for bare-name lookup)
-  await kv.put("secid:*", JSON.stringify({ child_index: globalChildIndex }));
+  await kv.put(
+    "secid:*",
+    JSON.stringify({ child_index: globalChildIndex, name_index: nameIndex })
+  );
 
   // Write secid:registry
   await kv.put("secid:registry", JSON.stringify(REGISTRY));

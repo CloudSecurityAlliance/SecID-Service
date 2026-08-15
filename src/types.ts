@@ -78,6 +78,12 @@ export interface MatchNodeData {
   lang?: LangConfig;     // Language availability and URL substitution config
   type?: string;
   note?: string;
+  /**
+   * Enumeration of the identifiers this node accepts, id → title. Treated as a
+   * closed set only when `patterns` is open (see isOpenPattern) — several
+   * registry entries pair a tight pattern with a deliberately partial list.
+   */
+  known_values?: Record<string, string>;
   variables?: Record<string, VariableDefinition>;
   lookup_table?: Record<string, string | LookupTableEntry>;
 
@@ -108,6 +114,17 @@ export interface MatchNode {
   weight: number;
   data: MatchNodeData;
   children?: MatchNode[];
+  /**
+   * The registry declaring that this identifier space is genuinely unbounded
+   * (GitHub usernames, Jira project keys, conference paper slugs) and the
+   * permissive pattern is intentional. Such nodes are excluded from unscoped
+   * cross-source search — an unbounded pattern cannot tell a real identifier
+   * from an arbitrary search term — while namespace-scoped resolution still
+   * works. Absent means "expected to discriminate"; see
+   * scripts/check-pattern-breadth.py in the SecID repo, which fails an
+   * undeclared open pattern.
+   */
+  open_pattern?: boolean;
 }
 
 export interface RegistryNamespace {
@@ -178,8 +195,21 @@ export interface GlobalChildIndexEntry extends ChildIndexEntry {
   type: SecIDType;
 }
 
+/**
+ * Namespace identity entry — lets free-text search find a namespace by the name
+ * people actually type (its domain label or declared names) rather than only by
+ * a source slug. `aliases` are pre-lowercased for exact comparison.
+ */
+export interface NameIndexEntry {
+  type: string;
+  namespace: string;
+  aliases: string[];
+}
+
 export interface GlobalIndex {
   child_index: GlobalChildIndexEntry[];
+  /** Absent on deploys predating identity search — callers must tolerate that. */
+  name_index?: NameIndexEntry[];
 }
 
 export interface RegistryMeta {

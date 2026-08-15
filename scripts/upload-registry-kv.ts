@@ -29,6 +29,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
+import { namespaceAliases } from "../src/identity";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -328,10 +329,21 @@ function buildEntries(): BulkEntry[] {
       }
     }
   }
+  // Namespace identity index — lets free-text search find a namespace by the
+  // name people type (domain label, common_name, official_name,
+  // alternate_names) rather than only by a source slug.
+  const nameIndex: Array<{ type: string; namespace: string; aliases: string[] }> = [];
+  for (const type of types) {
+    for (const [ns, data] of Object.entries(registry[type])) {
+      nameIndex.push({ type, namespace: ns, aliases: namespaceAliases(ns, data) });
+    }
+  }
+
   entries.push({
     key: "secid:*",
-    value: JSON.stringify({ child_index: globalChildIndex }),
+    value: JSON.stringify({ child_index: globalChildIndex, name_index: nameIndex }),
   });
+  console.log(`  global name_index: ${nameIndex.length} entries`);
   console.log(`  global child_index: ${globalChildIndex.length} entries`);
 
   // secid:registry — complete compiled registry

@@ -12,6 +12,7 @@ import type {
   ResultEntry,
 } from "./types";
 import { SECID_TYPES } from "./types";
+import { matchesNamespaceIdentity } from "./identity";
 
 // ReDoS runtime bound. Registry-authored patterns (patterns[], variables.*.extract)
 // run against attacker-controlled input via JS RegExp — no RE2, no timeout.
@@ -377,7 +378,7 @@ function matchChildrenAndResolve(
   const qualifiers = parsed.qualifiers;
 
   for (const child of children) {
-    if (!matchesAnyPattern(child.patterns, subpath)) {
+    if (!nodeMatches(child, subpath, true)) {
       continue;
     }
 
@@ -637,7 +638,7 @@ function namespaceScopedSearch(
     if (!node.children) continue;
 
     for (const child of node.children) {
-      if (!matchesAnyPattern(child.patterns, identifier)) continue;
+      if (!nodeMatches(child, identifier, true)) continue;
 
       const nameSlug = extractNameSlug(node);
       const secid = `secid:${parsed.type}/${parsed.namespace}/${nameSlug}#${identifier}`;
@@ -681,11 +682,34 @@ function typeScopedSearch(
   const results: ResultEntry[] = [];
 
   for (const [nsKey, ns] of Object.entries(typeRegistry)) {
+    // Namespace identity match — user typed the org or programme name rather
+    // than a source name (e.g., "ismap" for ismap.go.jp, whose only source is
+    // named "control-criteria"). Without this, a namespace is findable only by
+    // a slug the user has no way to guess.
+    if (matchesNamespaceIdentity(nsKey, ns, identifier)) {
+      const secid = `secid:${parsed.type}/${nsKey}`;
+      const nsUrl = ns.urls?.[0]?.url;
+      if (nsUrl) {
+        results.push({ secid, weight: NAMESPACE_IDENTITY_WEIGHT, url: nsUrl });
+      } else {
+        results.push({
+          secid,
+          data: {
+            description: ns.official_name,
+            weight: NAMESPACE_IDENTITY_WEIGHT,
+            official_name: ns.official_name,
+            common_name: ns.common_name,
+            source_count: ns.match_nodes.length,
+          },
+        } as RegistryResult);
+      }
+    }
+
     for (const node of ns.match_nodes) {
       // Source-level pattern match — user typed the source's own name
       // (e.g., "cwe" matches the cwe source in weakness/mitre.org).
       // Return source-level info rather than a child resolution.
-      if (matchesAnyPattern(node.patterns, identifier)) {
+      if (nodeMatches(node, identifier, false)) {
         const nameSlug = extractNameSlug(node);
         const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}`;
         // Prefer source-level url; fall back to first namespace url; otherwise
@@ -714,7 +738,7 @@ function typeScopedSearch(
       // (e.g., "CVE-2021-44228" matches a child of the cve source).
       if (!node.children) continue;
       for (const child of node.children) {
-        if (!matchesAnyPattern(child.patterns, identifier)) continue;
+        if (!nodeMatches(child, identifier, false)) continue;
 
         const nameSlug = extractNameSlug(node);
         const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}#${identifier}`;
@@ -769,6 +793,92 @@ function findMatchingNode(
     }
   }
   return null;
+}
+
+// Tokens no legitimate identifier pattern should accept. A pattern matching
+// these accepts essentially anything, so it cannot discriminate between a real
+// identifier and an arbitrary search term.
+// Namespace identity matches rank just below an exact source-name match.
+const NAMESPACE_IDENTITY_WEIGHT = 90;
+
+// Coverage matters as much as content, and the first version of this list got
+// that wrong: every token was long and lower/mixed-case, so ^[A-Z&]{2,3}$ could
+// not match one and was never recognised as open. Nothing then enforced the 17
+// enumerated CCM domains, and secid:control/FOO returned seven fabricated
+// results in production. A sentinel only tests the patterns whose length and
+// character class it can actually reach, so short all-uppercase, short
+// all-lowercase, and punctuated forms all have to be present.
+//
+// Keep in step with scripts/pattern-probes.json in the SecID repo — the registry
+// gate and this resolver must agree on what "open" means, or a pattern passes CI
+// and then behaves differently in production.
+const OPEN_PATTERN_SENTINELS = [
+  "qxzjvwk", "Qx9Zjvwk7", "zzqqxxjj", "Zq7Xv9Kw", "wkqzjxvq",
+  "QZX", "XQ", "ZQJ", "QQ9", "QZXJ",
+  "qzx", "zj", "qqj",
+  "ZQ.XJ", "QZX-99",
+];
+
+const openPatternCache = new Map<string, boolean>();
+
+/** Does this pattern set accept arbitrary input (e.g. `^.+$`, `^[a-z-]+$`)? */
+function isOpenPattern(patterns: string[]): boolean {
+  const key = JSON.stringify(patterns);
+  const cached = openPatternCache.get(key);
+  if (cached !== undefined) return cached;
+
+  let open = false;
+  for (const pat of patterns) {
+    try {
+      const re = toRegExp(pat);
+      if (OPEN_PATTERN_SENTINELS.some((s) => re.test(s))) {
+        open = true;
+        break;
+      }
+    } catch {
+      // Invalid regex — skip
+    }
+  }
+  openPatternCache.set(key, open);
+  return open;
+}
+
+/**
+ * Does `input` match this node? Three gates, in order:
+ *
+ *  1. When the pattern is open, `known_values` is the only real validation the
+ *     node has, so it becomes a closed set. A tight pattern keeps authority
+ *     instead — entries like CSA AICM enumerate only a subset of real IDs, and
+ *     closing those would manufacture false negatives.
+ *  2. An open pattern with no enumeration cannot discriminate at all, so it is
+ *     unreachable from an unscoped search. Otherwise every free-text query
+ *     matches it and one namespace buries every other result.
+ *  3. Otherwise the regex decides, as before.
+ *
+ * `scoped` is true when the caller already named the namespace, which is what
+ * keeps genuinely unbounded spaces (GitHub usernames, paper slugs) resolvable.
+ */
+/**
+ * Is this node's identifier space unbounded — either because the registry says
+ * so, or because the pattern demonstrably accepts anything?
+ *
+ * Both halves are load-bearing and neither subsumes the other. Detection catches
+ * patterns nobody declared, including ones added after this code shipped.
+ * Declaration catches patterns detection cannot see: `^\d+$` accepts every
+ * integer, yet matches no nonsense token, because every sentinel contains
+ * letters. Only the registry can say that space is open.
+ */
+function isNodeOpen(node: MatchNode): boolean {
+  return node.open_pattern === true || isOpenPattern(node.patterns);
+}
+
+function nodeMatches(node: MatchNode, input: string, scoped: boolean): boolean {
+  if (isNodeOpen(node)) {
+    const known = node.data?.known_values;
+    if (known) return Object.prototype.hasOwnProperty.call(known, input);
+    if (!scoped) return false;
+  }
+  return matchesAnyPattern(node.patterns, input);
 }
 
 function matchesAnyPattern(patterns: string[], input: string): boolean {
