@@ -1,0 +1,12 @@
+=== CloudSecurityAlliance/SecID-Service  (10) ===
+2026-06-22 | Label untrusted registry text on the MCP surface; add ReDoS input cap (#18)
+2026-06-22 | Label untrusted registry text on the MCP surface; add ReDoS input cap
+2026-06-20 | fix: validate resolved URL scheme/authority in buildUrl (F-01-01) (#17)
+2026-06-19 | fix: validate resolved URL scheme/authority in buildUrl (F-01-01)
+2026-06-19 | Pivot to MCP-only feedback: add submit_feedback tool, drop web-form submission_url (#16)
+2026-06-19 | Pivot to MCP-only feedback: add submit_feedback tool, drop web-form submission_url
+2026-06-11 | Fix: detect namespace-level miss in KV flow (empty partial registry) (#15)
+2026-06-11 | Fix: detect namespace-level miss in KV flow (empty partial registry)
+2026-06-11 | Add submission_url to not_found + capture misses in secid_FEEDBACK (#14)
+2026-06-11 | Add submission_url to not_found + capture misses in secid_FEEDBACK
+

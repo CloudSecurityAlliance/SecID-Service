@@ -1,6 +1,6 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
-import { resolve, MAX_REGEX_INPUT_CHARS } from "./resolver";
+import { resolve, isOpenPattern, MAX_REGEX_INPUT_CHARS } from "./resolver";
 import { recordMiss } from "./feedback";
 import {
   isResolutionResult,
@@ -292,6 +292,12 @@ async function searchBareIdentifier(
   const sourceMatches: Array<{ type: SecIDType; namespace: string; nameSlug: string }> = [];
   const childMatchesByType = new Map<SecIDType, Set<string>>();
   for (const entry of globalIndex.child_index) {
+    // An open pattern must not answer a bare term. This is still an unscoped
+    // search even though a source-level hit is resolved as a fully-qualified
+    // query below — without this, github.com/users answered every free-text
+    // query because its username pattern matches any token.
+    // `open` is absent on older index deploys, so fall back to detection.
+    if (entry.open ?? isOpenPattern(entry.patterns)) continue;
     for (const pat of entry.patterns) {
       try {
         const re = pat.startsWith("(?i)")

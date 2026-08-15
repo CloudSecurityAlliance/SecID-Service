@@ -165,6 +165,17 @@ describe("resolveFromKV", () => {
     expect(secids).toContain("secid:control/fedramp.gov");
   });
 
+  it("does not return open-pattern namespaces for a bare term", async () => {
+    // github.com/users and ndss-symposium.org accept any token by construction
+    // and are declared open_pattern. They must not answer "ismap" — a bare
+    // source-level index hit is still an unscoped search, even though it is
+    // resolved as a fully-qualified query.
+    const result = await resolveFromKV(env.secid_REGISTRY, "ismap");
+    const secids = result.results.map((r) => (r as { secid: string }).secid);
+    expect(secids.filter((s) => s.includes("github.com/users"))).toEqual([]);
+    expect(secids.filter((s) => s.includes("ndss-symposium.org"))).toEqual([]);
+  });
+
   it("finds source-level match for bare name (capec)", async () => {
     const result = await resolveFromKV(env.secid_REGISTRY, "capec");
     expect(result.status).toBe("found");

@@ -30,6 +30,8 @@ import { fileURLToPath } from "url";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { namespaceAliases } from "../src/identity";
+import { isOpenPattern } from "../src/resolver";
+import type { GlobalChildIndexEntry } from "../src/types";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -60,6 +62,8 @@ interface RegistryFile {
 }
 
 interface MatchNodeRaw {
+  /** Registry declaration that this identifier space is genuinely unbounded. */
+  open_pattern?: boolean;
   patterns: string[];
   description: string;
   weight: number;
@@ -296,7 +300,7 @@ function buildEntries(): BulkEntry[] {
   // carry a `level` discriminator so the resolver can build the right ParsedSecID:
   //   - level: "source" → fully-qualified resolution to that source's match_node
   //   - level: "child"  → cross-source item lookup
-  const globalChildIndex: Array<ChildIndexEntry & { type: string; level: "source" | "child" }> = [];
+  const globalChildIndex: GlobalChildIndexEntry[] = [];
   for (const type of types) {
     for (const [ns, data] of Object.entries(registry[type])) {
       if (!data.match_nodes) continue;
@@ -308,6 +312,7 @@ function buildEntries(): BulkEntry[] {
           namespace: ns,
           name_slug: nameSlug,
           level: "source",
+          open: node.open_pattern === true || isOpenPattern(node.patterns),
           patterns: node.patterns,
           description: node.description,
           weight: node.weight ?? 100,
@@ -320,6 +325,7 @@ function buildEntries(): BulkEntry[] {
             namespace: ns,
             name_slug: nameSlug,
             level: "child",
+            open: child.open_pattern === true || isOpenPattern(child.patterns),
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
