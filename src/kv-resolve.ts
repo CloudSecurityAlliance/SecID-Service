@@ -108,7 +108,7 @@ export async function resolveFromKV(
 
   // Type-only query — return type metadata from TypeIndex directly
   // (avoids fetching all 502+ disclosure namespaces just to list them)
-  if (!parsed.namespace && !parsed.name) {
+  if (!parsed.namespace && (!parsed.name || parsed.name === "*")) {
     return {
       secid_query: input,
       status: "found" as const,

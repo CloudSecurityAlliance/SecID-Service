@@ -53,6 +53,14 @@ export function resolve(
     return listNamespaces(query, parsed.type, typeRegistry);
   }
 
+  // Wildcard: `secid:control/*` means "list every namespace of this type".
+  // PRINCIPLES.md documents /* at any level for exploration, but nothing
+  // implemented it — it fell through to cross-source search and looked for a
+  // literal "*" identifier, so the documented convention returned not_found.
+  if (!parsed.namespace && parsed.name === "*") {
+    return listNamespaces(query, parsed.type, typeRegistry);
+  }
+
   // Has name but no namespace → cross-source search across type
   if (!parsed.namespace && parsed.name) {
     return typeScopedSearch(query, parsed, typeRegistry);
@@ -106,6 +114,7 @@ function listNamespaces(
           subtypes.add(raw);
         }
       }
+      const country = (data as unknown as { tags?: { country?: unknown } }).tags?.country;
       return {
         secid: `secid:${type}/${ns}`,
         data: {
@@ -113,6 +122,7 @@ function listNamespaces(
           common_name: data.common_name,
           source_count: data.match_nodes.length,
           subtypes: [...subtypes].sort(),
+          ...(Array.isArray(country) && country.length ? { country } : {}),
         },
       };
     });
