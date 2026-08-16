@@ -235,6 +235,9 @@ function buildEntries(): BulkEntry[] {
           official_name: data.official_name,
           common_name: data.common_name,
           source_count: data.match_nodes?.length ?? 0,
+        ...(Array.isArray((data as unknown as { tags?: { country?: string[] } }).tags?.country)
+          ? { country: (data as unknown as { tags: { country: string[] } }).tags.country }
+          : {}),
           subtypes: [...subtypes].sort(),
         };
       });

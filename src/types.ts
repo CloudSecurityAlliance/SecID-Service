@@ -169,6 +169,11 @@ export interface TypeIndex {
      *  subtype tags. Older deploys may omit this field; treat absent as
      *  empty for filter purposes. */
     subtypes?: string[];
+    /** ISO 3166-1 alpha-2 codes from the namespace's tags.country (plus EU /
+     *  INTL). Absent means untagged, which is NOT the same as "no country" —
+     *  most .com and .org namespaces simply have not been curated, so a filter
+     *  must exclude them rather than guess. */
+    country?: string[];
   }>;
   child_index: ChildIndexEntry[];
 }

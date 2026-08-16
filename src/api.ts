@@ -18,6 +18,23 @@ const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value 
  * If either KV key is missing, the response still returns the type/subtype
  * structure with counts omitted or zero.
  */
+/**
+ * Pull a qualifier value out of a SecID string — `secid:control?country=JP`.
+ *
+ * Qualifiers are the last component in the grammar, so a trailing `?k=v&k=v`
+ * segment is unambiguous. Only used for listing filters; resolution qualifiers
+ * are parsed properly by the resolver.
+ */
+function qualifierFromSecID(secid: string, key: string): string | null {
+  const q = secid.split("?").slice(1).join("?");
+  if (!q) return null;
+  for (const pair of q.split("&")) {
+    const [k, v] = pair.split("=");
+    if (k === key && v) return decodeURIComponent(v);
+  }
+  return null;
+}
+
 export async function handleTypes(c: Context<AppEnv>): Promise<Response> {
   const kv = c.env.secid_REGISTRY;
   let typeCounts: Record<string, number> = {};
@@ -127,48 +144,59 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       waitUntil: (p) => c.executionCtx.waitUntil(p),
     });
 
-    // Optional ?subtype= filter — applies to namespace listings within a type.
-    // Two response shapes need handling:
+    // Optional listing filters. Two response shapes need handling:
     //   1. Type-only query (e.g., secid:methodology) returns a single wrapper
     //      result whose data.namespaces is the array. Filter that inner array.
-    //   2. Other listings (cross-source, list-by-namespace) return per-entry
-    //      results with data.subtypes per result. Filter the top-level array.
+    //   2. Other listings return per-entry results carrying the field directly.
     // Item resolutions and source-description responses pass through untouched.
-    const subtypeFilter = c.req.query("subtype");
-    if (subtypeFilter) {
-      const nestedNamespaces = (
+    //
+    // `country` is accepted both as a URL parameter and as a SecID qualifier
+    // (secid:control?country=JP), because the qualifier form is what the SecID
+    // grammar already documents while ?subtype= established the parameter form.
+    const filters: Array<{ param: string; field: string; ci: boolean }> = [
+      { param: "subtype", field: "subtypes", ci: false },
+      { param: "country", field: "country", ci: true },
+    ];
+
+    for (const { param, field, ci } of filters) {
+      const value = c.req.query(param) ?? qualifierFromSecID(decoded, param);
+      if (!value) continue;
+
+      const matches = (entry: unknown): boolean => {
+        const values = (entry as Record<string, unknown>)?.[field];
+        if (!Array.isArray(values)) return false;
+        return ci
+          ? values.some((v) => String(v).toLowerCase() === value.toLowerCase())
+          : values.includes(value);
+      };
+
+      const nested =
         result.results.length === 1
-          ? (result.results[0] as { data?: { namespaces?: Array<{ subtypes?: string[] }> } }).data?.namespaces
-          : null
-      );
-      if (Array.isArray(nestedNamespaces)) {
-        const before = nestedNamespaces.length;
-        const filtered = nestedNamespaces.filter(
-          (n) => Array.isArray(n.subtypes) && n.subtypes.includes(subtypeFilter)
-        );
+          ? (result.results[0] as { data?: { namespaces?: unknown[] } }).data?.namespaces
+          : null;
+
+      if (Array.isArray(nested)) {
+        const before = nested.length;
+        const filtered = nested.filter(matches);
         const single = result.results[0] as { data: Record<string, unknown> };
         return c.json({
           ...result,
           results: [{ ...single, data: { ...single.data, namespaces: filtered, namespace_count: filtered.length } }],
-          filter: { subtype: subtypeFilter, total_before_filter: before },
+          filter: { [param]: value, total_before_filter: before },
           ...(filtered.length === 0 && before > 0
-            ? { message: `No namespaces with subtype "${subtypeFilter}" found in this type.` }
+            ? { message: `No namespaces with ${param} "${value}" found in this type.` }
             : {}),
         });
       }
-      // Fallback: top-level filtering (per-entry results with data.subtypes).
+
       const before = result.results.length;
-      const filtered = result.results.filter((r) => {
-        const data = (r as { data?: { subtypes?: unknown } }).data;
-        const subtypes = data?.subtypes;
-        return Array.isArray(subtypes) && subtypes.includes(subtypeFilter);
-      });
+      const filtered = result.results.filter((r) => matches((r as { data?: unknown }).data));
       return c.json({
         ...result,
         results: filtered,
-        filter: { subtype: subtypeFilter, total_before_filter: before },
+        filter: { [param]: value, total_before_filter: before },
         ...(filtered.length === 0 && before > 0
-          ? { message: `No namespaces with subtype "${subtypeFilter}" found in this type.` }
+          ? { message: `No namespaces with ${param} "${value}" found in this type.` }
           : {}),
       });
     }

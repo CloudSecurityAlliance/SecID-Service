@@ -128,6 +128,9 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
         official_name: nsData.official_name,
         common_name: nsData.common_name,
         source_count: nsData.match_nodes?.length ?? 0,
+        ...(Array.isArray((nsData as unknown as { tags?: { country?: string[] } }).tags?.country)
+          ? { country: (nsData as unknown as { tags: { country: string[] } }).tags.country }
+          : {}),
         subtypes: [...subtypes].sort(),
       };
     });
