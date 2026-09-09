@@ -30,196 +30,380 @@ const TYPES_INLINE = TYPE_REGISTRY.map((t) => {
 
 const BUILD_A_CLIENT_DOC = `# Build a SecID Client
 
-Everything needed to generate a working SecID client in any language.
+This document contains everything an AI assistant needs to generate a working SecID client in any language. It is the primary artifact of this repository.
 
 ## What You're Building
 
-An HTTP client for a single API endpoint that resolves security knowledge identifiers to URLs.
+An HTTP client for a single API endpoint that resolves security knowledge identifiers to URLs. The API is simple; the value is in correctly handling the response.
 
-**Base URL:** https://secid.cloudsecurityalliance.org
-**Endpoint:** GET /api/v1/resolve?secid={encoded_secid}
+**Base URL:** \`https://secid.cloudsecurityalliance.org\`
+**Endpoint:** \`GET /api/v1/resolve?secid={encoded_secid}\`
 **Auth:** None. No API keys, no tokens, no headers.
 
 ## The One Encoding Gotcha
 
-SecID strings use # to separate subpath identifiers:
+SecID strings use \`#\` to separate subpath identifiers:
 
-    secid:advisory/mitre.org/cve#CVE-2021-44228
+\`\`\`
+secid:advisory/mitre.org/cve#CVE-2021-44228
+\`\`\`
 
-In a URL query parameter, # is the fragment delimiter. You must encode it:
+In a URL query parameter, \`#\` is the fragment delimiter. You must encode it:
 
-    CORRECT: /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
-    WRONG:   /api/v1/resolve?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
+\`\`\`
+CORRECT: /api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
+WRONG:   /api/v1/resolve?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
+\`\`\`
 
-Replace # with %23 in the SecID string before appending to the URL. Verify your language's URL encoder handles this — some treat # as a fragment separator and skip it.
+**Implementation:** Use your language's query-parameter encoder on the whole SecID (\`urllib.parse.quote(s, safe="")\`, \`encodeURIComponent\`, \`url.QueryEscape\`). Do NOT hand-roll \`replace("#", "%23")\` — it leaves \`&\`, \`?\`, spaces, and other reserved characters unencoded, which corrupts the query. A correct encoder handles \`#\` (and everything else) for you.
 
-This is the #1 failure mode for new clients.
+Encoding \`#\` is the historical #1 failure mode for new clients; full query-encoding closes it and the other reserved-character bugs at once.
+
+## Request Format
+
+\`\`\`
+GET /api/v1/resolve?secid={secid_with_hash_encoded}
+Accept: application/json
+\`\`\`
+
+The \`secid\` parameter value must be query-encoded as a whole (the encoder turns \`#\` into \`%23\`, \`&\` into \`%26\`, and so on). The server URL-decodes the parameter, so full encoding is safe.
+
+**No request body.** It's a GET with a query parameter. The server returns JSON with \`Content-Type: application/json\`.
 
 ## Response Envelope
 
-Every response has the same shape:
+Every response — success or failure — has the same shape:
 
-    {
-      "secid_query": "secid:advisory/mitre.org/cve#CVE-2021-44228",
-      "status": "found",
-      "results": [...],
-      "message": null
-    }
+\`\`\`json
+{
+  "secid_query": "secid:advisory/mitre.org/cve#CVE-2021-44228",
+  "status": "found",
+  "results": [...],
+  "message": null
+}
+\`\`\`
 
-Fields: secid_query (string, always), status (string, always), results (array, always), message (string, only on not_found/error).
+| Field | Type | Always Present | Description |
+|-------|------|----------------|-------------|
+| \`secid_query\` | string | Yes | Exactly what the client sent, echoed back (decoded form) |
+| \`status\` | string | Yes | How the query was processed |
+| \`results\` | array | Yes | Zero or more result objects (may be empty) |
+| \`message\` | string | Only on \`not_found\`/\`error\` | Human/AI-readable guidance |
 
 ## Five Status Values
 
-- found: Exact match. Use results directly.
-- corrected: Server fixed input and resolved. Show correction; use results.
-- related: Partial match. Display registry data; may need @version.
-- not_found: Nothing matched. Show message field.
-- error: Unparseable input. Show message field.
+| Status | Meaning | What to Do |
+|--------|---------|------------|
+| \`found\` | Exact match | Use the results directly |
+| \`corrected\` | Server fixed the input and resolved it | Show the corrected SecID; use the results |
+| \`related\` | Partial match; here's what we have | Display registry data; guide user to refine query |
+| \`not_found\` | Nothing matched | Show the \`message\` field; suggest alternatives |
+| \`error\` | Structurally unparseable input | Show the \`message\` field; check input format |
+
+**\`found\` vs \`corrected\`:** Compare \`secid_query\` with \`results[].secid\`. If they differ, the server corrected the input. For example, \`secid:advisory/redhat.com/RHSA-2026:1234\` gets corrected to \`secid:advisory/redhat.com/errata#RHSA-2026:1234\` — the user put the identifier as the name instead of the subpath.
+
+**\`related\`:** The server recognized something (a valid type, a valid namespace) but couldn't fully resolve. Results contain registry data about what's available. This commonly happens when \`version_required\` sources are queried without a version.
 
 ## Two Result Types
 
-Distinguish by checking for the weight field:
+Results come in two flavors. Distinguish them by checking for the \`weight\` field.
 
-Resolution Result (has weight + url):
-    {"secid": "secid:advisory/mitre.org/cve#CVE-2021-44228", "weight": 100, "url": "https://www.cve.org/CVERecord?id=CVE-2021-44228"}
+### Resolution Result (has \`weight\` + \`url\`)
 
-Registry Result (has data):
-    {"secid": "secid:advisory/mitre.org/cve", "data": {"official_name": "Common Vulnerabilities and Exposures", ...}}
+The query resolved to a specific URL:
 
-They never overlap.
+\`\`\`json
+{
+  "secid": "secid:advisory/mitre.org/cve#CVE-2021-44228",
+  "weight": 100,
+  "url": "https://www.cve.org/CVERecord?id=CVE-2021-44228"
+}
+\`\`\`
 
-## Weights
+- **\`secid\`** — The fully-qualified SecID for this result
+- **\`weight\`** — Match quality: 100 = authoritative primary source, 50 = secondary/indirect
+- **\`url\`** — The resolved URL where this resource lives
 
-100 = authoritative primary source, 80 = high-quality secondary, 50 = alternative/indirect.
-Multiple results are normal. Sort by weight descending. Highest weight = best default.
+### Registry Result (has \`data\`)
+
+The query returned registry metadata (browsing/discovery):
+
+\`\`\`json
+{
+  "secid": "secid:advisory/mitre.org/cve",
+  "data": {
+    "official_name": "Common Vulnerabilities and Exposures",
+    "common_name": "CVE",
+    "urls": [
+      {"type": "website", "url": "https://cve.org"}
+    ],
+    "patterns": ["^CVE-\\\\d{4}-\\\\d{4,}$"],
+    "examples": ["CVE-2024-1234", "CVE-2021-44228"]
+  }
+}
+\`\`\`
+
+- **\`secid\`** — The SecID this data describes
+- **\`data\`** — Registry metadata (contents vary by query depth)
+
+**How to distinguish:** If a result has \`weight\` and \`url\`, it's a resolution result. If it has \`data\`, it's a registry result. They never overlap.
+
+## Working with Weights
+
+Multiple results are normal. A single CVE query may return:
+
+\`\`\`json
+{
+  "results": [
+    {"secid": "secid:advisory/mitre.org/cve#CVE-2021-44228", "weight": 100, "url": "https://www.cve.org/CVERecord?id=CVE-2021-44228"},
+    {"secid": "secid:advisory/mitre.org/cve#CVE-2021-44228", "weight": 50, "url": "https://github.com/CVEProject/cvelistV5/blob/main/cves/2021/44xxx/CVE-2021-44228.json"},
+    {"secid": "secid:advisory/mitre.org/cve#CVE-2021-44228", "weight": 50, "url": "https://cveawg.mitre.org/api/cve/CVE-2021-44228"}
+  ]
+}
+\`\`\`
+
+Same resource, three access methods. Weight 100 is the primary human-readable page; weight 50 entries are machine-readable alternatives.
+
+**Sort results by weight descending.** The highest-weight result is the best default. For a "just give me the URL" helper, return \`results[0].url\` after sorting.
+
+**Weight scale:**
+- **100** — Authoritative primary source (this is THE place to go)
+- **80** — High-quality secondary source
+- **50** — Alternative access method, indirect reference, or secondary mirror
 
 ## Cross-Source Search
 
-Omit namespace to search all sources of a type:
-    secid:advisory/CVE-2021-44228
-Returns URLs from MITRE, NVD, Red Hat, SUSE, etc.
+Omit the namespace to search across all sources of that type:
+
+\`\`\`
+secid:advisory/CVE-2021-44228
+\`\`\`
+
+This returns every advisory source that knows about CVE-2021-44228 — MITRE, NVD, Red Hat, SUSE, etc. Results have different SecIDs showing where each match was found.
+
+This is powerful for "show me everything about this vulnerability" use cases.
 
 ## Version Disambiguation
 
-Sources with version_required (like OWASP Top 10) return status "related" with version info when queried without @version. Detect this and prompt user to add @version.
+Some sources require a version (OWASP Top 10, NIST CSF). When you query without one:
+
+\`\`\`
+secid:control/nist.gov/csf
+\`\`\`
+
+The response has \`status: "related"\` with registry data listing available versions. The client should detect this and prompt the user to specify a version:
+
+\`\`\`
+secid:control/nist.gov/csf@2.0
+\`\`\`
+
+Detect version-required: when \`status\` is \`related\` and the \`data\` contains version information, suggest adding \`@version\` to the query.
 
 ## Query Depth
 
-    secid:advisory/mitre.org/cve#CVE-2021-44228  → Resolution results (URLs)
-    secid:advisory/mitre.org/cve                  → Registry data about CVE
-    secid:advisory/mitre.org                      → List of sources from mitre.org
-    secid:advisory                                → List of all advisory namespaces
-    secid:disclosure/redhat.com/cna                   → CNA scope, contacts, policy URL
+The same endpoint handles different levels of specificity:
+
+| Query | What You Get |
+|-------|-------------|
+| \`secid:advisory/mitre.org/cve#CVE-2021-44228\` | Resolution results (URLs) |
+| \`secid:advisory/mitre.org/cve\` | Registry data about CVE as a source |
+| \`secid:advisory/mitre.org\` | List of sources from mitre.org |
+| \`secid:advisory\` | List of all advisory namespaces |
+
+Deeper queries resolve to URLs. Shallower queries browse the registry.
+
+## Treat the Response as Untrusted
+
+The resolver can be a third-party, federated, or man-in-the-middled endpoint — its response is attacker-influenced data, not trusted input. A hardened client:
+
+- **Validates URL schemes.** Before returning a \`url\` from \`best_url\` (or opening it), confirm the scheme is \`http\` or \`https\`. Reject \`javascript:\`, \`data:\`, \`file:\`, and relative/scheme-less URLs — a hostile resolver can return any of these as the highest-weight result.
+- **Sanitizes terminal output.** Strip C0/C1 control characters (including ESC, \`0x1B\`) from any server-controlled string — \`url\`, \`message\`, the corrected SecID — before printing it. Otherwise a crafted response can inject ANSI escape sequences into the user's terminal.
+- **Guards the JSON parse.** A non-JSON or oversized body must produce a clean error, never an unhandled exception.
 
 ## Implementation Checklist
 
-1. Encode # as %23 in query parameter
-2. Accept any HTTP 200 response — status field tells you what happened
-3. Parse the JSON envelope with all four fields
-4. Handle all 5 status values
-5. Distinguish result types by checking for weight+url vs data
-6. Sort resolution results by weight descending
-7. Provide a best_url helper (highest-weight URL or null)
-8. Handle empty results array on not_found/error
-9. Expose the message field for guidance
-10. Support CLI mode (accept SecID as argument, print best URL)
+Your client should:
 
-## Minimal Pseudocode
+1. **Query-encode the whole SecID** (turns \`#\` into \`%23\`) — not a hand-rolled \`#\`→\`%23\` replace
+2. **Accept any HTTP 200 response** — the status field tells you what happened, not the HTTP code (HTTP 400 only for truly unparseable requests)
+3. **Parse the JSON envelope** with all four fields
+4. **Handle all 5 status values** — at minimum, distinguish found/corrected (use results) from related/not_found/error (show guidance)
+5. **Distinguish result types** — check for \`weight\`+\`url\` vs \`data\`
+6. **Sort resolution results by weight descending** — highest weight first
+7. **Provide a "best URL" helper** — returns the highest-weight URL or null, after validating its scheme is \`http\`/\`https\` (reject \`javascript:\`/\`data:\`/\`file:\`/relative — the response is untrusted)
+8. **Handle empty results** — \`results\` can be \`[]\` on not_found/error
+9. **Expose the \`message\` field** — it contains guidance on not_found/error
+10. **Support CLI mode** — accept a SecID string as a command-line argument, print the best URL
+11. **Set a request timeout** — 30 seconds. Prevents the client from hanging indefinitely on unresponsive servers or network issues
+12. **Limit response body size** — 10 MB. The API returns small JSON responses (typically 1–5 KB), but if the client is pointed at a custom \`base_url\`, an unbounded read is a memory exhaustion risk. Read at most 10 MB and reject anything larger
+13. **Treat the response as untrusted** — validate returned URL schemes and strip control characters from server-controlled strings before terminal output (see "Treat the Response as Untrusted" above)
 
-    function resolve(secid_string):
-        encoded = secid_string.replace("#", "%23")
-        url = BASE_URL + "/api/v1/resolve?secid=" + encoded
-        response = http_get(url)
-        return parse_json(response.body)
+## Minimal Example (pseudocode)
 
-    function best_url(secid_string):
-        result = resolve(secid_string)
-        if result.status in ["found", "corrected"]:
-            urls = [r for r in result.results if r.weight exists]
-            urls.sort_by(weight, descending)
-            return urls[0].url if urls else null
-        return null
+\`\`\`
+TIMEOUT = 30 seconds
+MAX_RESPONSE = 10 MB
+
+function resolve(secid_string):
+    encoded = url_query_encode(secid_string)   # NOT a "#"->"%23" replace
+    url = BASE_URL + "/api/v1/resolve?secid=" + encoded
+    response = http_get(url, timeout=TIMEOUT)
+    body = response.read(MAX_RESPONSE + 1)
+    if len(body) > MAX_RESPONSE:
+        return error("Response exceeds 10 MB limit")
+    json = parse_json(body)
+    return {
+        query: json.secid_query,
+        status: json.status,
+        results: json.results,
+        message: json.message
+    }
+
+function best_url(secid_string):
+    result = resolve(secid_string)
+    if result.status in ["found", "corrected"]:
+        urls = [r for r in result.results if r.weight exists]
+        urls.sort_by(weight, descending)
+        if not urls: return null
+        # Untrusted response: only surface http(s) URLs.
+        return urls[0].url if scheme_of(urls[0].url) in ["http", "https"] else null
+    return null
+\`\`\`
 `;
 
-const PROMPT_TEMPLATE_DOC = `# SecID Client Prompt Template
+const PROMPT_TEMPLATE_DOC = `# Prompt Template
 
-Copy everything below, replace {LANGUAGE} with your language, and give to an AI assistant.
+Copy everything below the line, replace \`{LANGUAGE}\` with your language, and paste into your AI assistant. Everything the AI needs is included — no external docs required.
 
 ---
 
-Build me a SecID client library in {LANGUAGE}. Single file, zero external dependencies (stdlib only). Include CLI mode.
+## Copy Below This Line
 
-## SecID
+Build me a SecID client library in **{LANGUAGE}**. The entire client is a single file with zero external dependencies (stdlib/built-ins only). Include a CLI mode.
 
-Universal grammar for security knowledge. Format: secid:type/namespace/name[@version]#subpath
+### What SecID Is
+
+SecID is a universal grammar for referencing security knowledge. Format: \`secid:type/namespace/name[@version]#subpath\`
 
 Examples:
-- secid:advisory/mitre.org/cve#CVE-2021-44228 (CVE record)
-- secid:weakness/mitre.org/cwe#CWE-79 (CWE weakness)
-- secid:advisory/CVE-2021-44228 (cross-source search)
-- secid:disclosure/redhat.com/cna (Red Hat CNA program — scope, contacts)
+- \`secid:advisory/mitre.org/cve#CVE-2021-44228\` — CVE record
+- \`secid:weakness/mitre.org/cwe#CWE-79\` — CWE weakness
+- \`secid:ttp/mitre.org/attack#T1059.003\` — ATT&CK technique
+- \`secid:advisory/CVE-2021-44228\` — cross-source search (all advisory sources)
 
-## API Contract
+### API Contract
 
-One endpoint: GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={encoded_secid}
-No auth. CORS enabled.
+**One endpoint:** \`GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={encoded_secid}\`
 
-CRITICAL: # in SecID must be encoded as %23 in the query parameter.
-    CORRECT: ?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228
-    WRONG:   ?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
+**No auth.** No API keys, no tokens, no special headers.
 
-Response (always HTTP 200 for processed queries):
-    {
-      "secid_query": "string (echoed input)",
-      "status": "found|corrected|related|not_found|error",
-      "results": [
-        {"secid": "string", "weight": 100, "url": "https://..."} // Resolution
-        // OR
-        {"secid": "string", "data": {"official_name": "..."}}    // Registry
-      ],
-      "message": "string|null (guidance on not_found/error)"
-    }
+**Critical encoding rule:** Fully query-encode the entire SecID with your language's standard encoder (\`urllib.parse.quote(s, safe="")\`, \`encodeURIComponent\`, \`url.QueryEscape\`). A hand-rolled \`#\`→\`%23\` replace is NOT enough — it leaves \`&\`, \`?\`, spaces, and other reserved characters unencoded, which corrupts the query. A correct encoder turns \`#\` into \`%23\` for you and handles the rest. (Encoding \`#\` is the historical #1 failure mode; full-encoding closes it and the others at once.)
 
-Status: found (use results), corrected (use results, show correction), related (show data, may need @version), not_found (show message), error (show message).
-Weights: 100=primary, 80=secondary, 50=alternative. Sort descending.
+\`\`\`
+CORRECT: ?secid=secid%3Aadvisory%2Fmitre.org%2Fcve%23CVE-2021-44228
+WRONG:   ?secid=secid:advisory/mitre.org/cve#CVE-2021-44228   (# begins the URL fragment — the server never sees it)
+\`\`\`
 
-## Required API Surface
+**Response envelope** (always this shape, HTTP 200 for all processed queries):
 
-    class SecIDClient:
-        constructor(base_url = "https://secid.cloudsecurityalliance.org")
-        resolve(secid: string) -> SecIDResponse
-        best_url(secid: string) -> string | null
-        lookup(type: string, identifier: string) -> SecIDResponse
+\`\`\`json
+{
+  "secid_query": "string — echoed input (decoded form)",
+  "status": "string — found|corrected|related|not_found|error",
+  "results": [
+    // Resolution result (resolved to URL):
+    {"secid": "string", "weight": 100, "url": "https://..."},
+    // OR Registry result (browsing data):
+    {"secid": "string", "data": {"official_name": "...", "urls": [...]}}
+  ],
+  "message": "string|null — guidance on not_found/error, absent otherwise"
+}
+\`\`\`
 
-    class SecIDResponse:
-        secid_query: string
-        status: string
-        results: list
-        message: string | null
-        property best_url -> string | null
-        property was_corrected -> bool
-        property resolution_results -> list (weight+url only, sorted)
-        property registry_results -> list (data only)
+**Five status values:**
 
-## CLI Mode
+| Status | Meaning | Action |
+|--------|---------|--------|
+| \`found\` | Exact match | Use results directly |
+| \`corrected\` | Server fixed input, resolved anyway | Use results; optionally show correction |
+| \`related\` | Partial match, here's what's available | Display registry data; may need @version |
+| \`not_found\` | Nothing matched | Show \`message\` field |
+| \`error\` | Unparseable input | Show \`message\` field |
 
-    $ {LANGUAGE} secid_client "secid:advisory/mitre.org/cve#CVE-2021-44228"
-    https://www.cve.org/CVERecord?id=CVE-2021-44228
+**Two result types** (distinguished by fields present):
+- Has \`weight\` + \`url\` → Resolution result (specific item resolved to URL)
+- Has \`data\` → Registry result (browsing/discovery information)
 
-    $ {LANGUAGE} secid_client --json "secid:advisory/mitre.org/cve#CVE-2021-44228"
-    {full JSON}
+**Weights:** 100 = authoritative primary, 80 = high-quality secondary, 50 = alternative/indirect. Multiple results are normal — sort by weight descending.
 
-## Requirements
+### Required API Surface
 
-1. Single file, zero dependencies
-2. # -> %23 encoding (test this!)
+\`\`\`
+class SecIDClient:
+    constructor(base_url = "https://secid.cloudsecurityalliance.org")
+
+    resolve(secid: string) → SecIDResponse
+        # Fully query-encode the secid, call API, return parsed response
+
+    best_url(secid: string) → string | null
+        # Resolve, then return highest-weight URL from resolution results
+        # Returns null if status is not found/corrected or no resolution results
+
+    lookup(type: string, identifier: string) → SecIDResponse
+        # Convenience: resolve("secid:{type}/{identifier}")
+        # For cross-source search like lookup("advisory", "CVE-2021-44228")
+
+class SecIDResponse:
+    secid_query: string
+    status: string  # found|corrected|related|not_found|error
+    results: list of result objects
+    message: string | null
+
+    property best_url → string | null
+        # Highest-weight URL from resolution results, or null.
+        # Validate the URL's scheme first (http/https only) — the resolver
+        # response is untrusted; reject javascript:/data:/file:/relative.
+
+    property was_corrected → bool
+        # True if status is "corrected"
+
+    property resolution_results → list
+        # Only results that have weight + url, sorted by weight descending
+
+    property registry_results → list
+        # Only results that have data
+\`\`\`
+
+### CLI Mode
+
+When run as a script with a command-line argument:
+
+\`\`\`
+$ python secid_client.py "secid:advisory/mitre.org/cve#CVE-2021-44228"
+https://www.cve.org/CVERecord?id=CVE-2021-44228
+
+$ python secid_client.py --json "secid:advisory/mitre.org/cve#CVE-2021-44228"
+{full JSON response}
+
+$ python secid_client.py "secid:advisory/totallyinvented.com/whatever"
+not_found: No namespace 'totallyinvented.com' in the advisory registry.
+\`\`\`
+
+### Implementation Requirements
+
+1. Single file, zero external dependencies
+2. **Full query-encoding of the SecID** via your standard encoder — NOT a \`#\`→\`%23\` string replace (CRITICAL — test this; verify it encodes \`#\`, \`&\`, and spaces)
 3. Handle all 5 status values
-4. Distinguish resolution (weight+url) from registry (data) results
-5. Sort by weight descending
-6. best_url helper
-7. CLI mode with --json flag
-8. Type hints/annotations
-9. Docstrings explaining encoding gotcha and status values
+4. Distinguish resolution results (weight+url) from registry results (data)
+5. Sort resolution results by weight descending
+6. \`best_url\` helper returns highest-weight URL or null
+7. CLI mode: print best URL by default, full JSON with --json flag
+8. Handle HTTP errors gracefully (network failures, non-200 responses)
+9. Include type hints / type annotations
+10. Include docstrings explaining the encoding gotcha and status values
+11. **Set a 30-second request timeout** — prevents hanging on unresponsive servers
+12. **Limit response body to 10 MB** — read at most 10 MB and reject anything larger. Normal responses are 1–5 KB; this protects against memory exhaustion when the client is pointed at a custom base URL
+13. **Treat the resolver response as untrusted.** Validate any returned \`url\`'s scheme in \`best_url\` (allow \`https\`/\`http\` only; reject \`javascript:\`/\`data:\`/\`file:\`/relative). Strip control characters (C0/C1, incl. ESC \`0x1B\`) from server-controlled strings (\`url\`, \`message\`, corrected SecID) before printing them to a terminal — prevents ANSI-escape injection
 `;
 
 // ── Tool descriptions ──
