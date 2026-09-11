@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
+    "deploy": "npm run build:website && wrangler deploy",
     "build:registry": "tsx scripts/build-registry.ts",
     "upload:registry": "tsx scripts/upload-registry-kv.ts",
     "build:website": "GIT_COMMIT_SHA=$(git rev-parse --short=12 HEAD) && cd website && PUBLIC_COMMIT_SHA=$GIT_COMMIT_SHA npm run build",
