@@ -90,11 +90,35 @@ This is forward-looking — no code change today, just signal that the repo's ro
 
 ```bash
 npm install
-npm run dev              # Local dev server
-npm run test             # Run tests
-npm run build:registry   # Recompile registry from SecID repo
-npm run deploy           # Deploy to Cloudflare
+npm install --prefix website   # the website is a separate Astro project
+npm run dev                    # Local dev server
+npm run test                   # Run tests
+npm run build:registry         # Recompile registry from SecID repo
+npm run build:website          # Rebuild the static site into website/dist
 ```
+
+## Deployment
+
+**Pushing to `main` deploys to production.** Cloudflare Workers Builds watches the
+repository and deploys on push — typically within about two minutes of a merge.
+That configuration lives in the Cloudflare dashboard, not in this repo, so it is
+not visible in `.github/workflows/`. Confirm a deploy landed with
+`npx wrangler deployments list`, or by checking the commit SHA in the site footer.
+
+There is currently no test gate in front of that deploy — see issue #28.
+
+### Deploying by hand (break-glass)
+
+```bash
+npm run deploy
+```
+
+Use this only when the automatic pipeline is unavailable. It builds the website
+and then deploys, in that order, and the order matters: `wrangler.toml` sets
+`[assets] directory = "./website/dist"`, and `website/dist/` is gitignored. A bare
+`wrangler deploy` publishes whatever happens to be on your disk — which, on a
+checkout that has not built the site recently, silently replaces the live website
+with a stale build. Prefer merging to `main`.
 
 ## Related Repositories
 
