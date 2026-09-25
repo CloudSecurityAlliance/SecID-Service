@@ -122,10 +122,10 @@ describe("percent-decoding: as-is first, decoded only as a fallback (L1)", () =>
 });
 
 describe("@version the source does not have (M2)", () => {
-  it("unversioned source: corrected, version dropped and explained", () => {
+  it("unversioned source: corrected, version dropped, no message", () => {
     const r = resolveLocal("secid:advisory/mitre.org/cve@bogus#CVE-2024-1234");
     expect(r.status).toBe("corrected");
-    expect(r.message).toContain("ignored");
+    expect(r).not.toHaveProperty("message");
     expect(secids(r).every((s) => !s.includes("@bogus"))).toBe(true);
     expect(secids(r)).toContain("secid:advisory/mitre.org/cve#CVE-2024-1234");
   });
@@ -146,6 +146,7 @@ describe("@version the source does not have (M2)", () => {
   it("case-only difference is corrected to the source's spelling", () => {
     const r = resolveLocal("secid:control/nist.gov/800-53@REV5#AC-1");
     expect(r.status).toBe("corrected");
+    expect(r).not.toHaveProperty("message");
     expect(secids(r)[0]).toBe("secid:control/nist.gov/800-53@rev5#AC-1");
   });
 
@@ -155,6 +156,18 @@ describe("@version the source does not have (M2)", () => {
       expect(r.status).toBe("related");
       const data = (r.results[0] as unknown as { data: { versions_available: unknown[] } }).data;
       expect(data.versions_available.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("no corrected response carries a message (API-RESPONSE-FORMAT.md)", () => {
+    for (const q of [
+      "secid:advisory/mitre.org/cve@bogus#CVE-2024-1234",
+      "secid:control/nist.gov/800-53@REV5#AC-1",
+      "secid:advisory/redhat.com/RHSA-2026:1234",
+    ]) {
+      const r = resolveLocal(q);
+      expect(r.status, q).toBe("corrected");
+      expect(r, q).not.toHaveProperty("message");
     }
   });
 

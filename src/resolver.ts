@@ -219,8 +219,9 @@ function resolveWithName(
  *  - version differs from a listed one only by case → corrected, using the
  *    listed spelling.
  *  - source lists no versions → corrected: the version cannot be checked, so
- *    it is dropped and the message says so rather than echoing it back as if
- *    it had been validated.
+ *    it is dropped rather than echoed back as if it had been validated.
+ *
+ * `corrected` responses carry no message (API-RESPONSE-FORMAT.md).
  *
  * Result SecIDs never carry a version that was not honoured, so a client that
  * copies them does not propagate the bad version.
@@ -246,27 +247,30 @@ function resolveVersionMismatch(
   const withVersion = (v: string | null) =>
     resolveWithName(query, { ...parsed, version: v }, ns, typeRegistry);
 
+  // A `corrected` response carries no message (API-RESPONSE-FORMAT.md: the
+  // results speak for themselves). The correction is visible in the result
+  // SecIDs, which carry the source's spelling, or no version at all.
   const caseMatch = listed.find((v) => v.toLowerCase() === version.toLowerCase());
   if (caseMatch) {
-    const r = withVersion(caseMatch);
-    if (r.status === "found") r.status = "corrected";
-    const note = `Version "${version}" matched as "${caseMatch}", the spelling the source uses.`;
-    r.message = r.message ? `${note} ${r.message}` : note;
-    return r;
+    return asCorrected(withVersion(caseMatch));
   }
 
   const r = withVersion(null);
-  const slug = extractNameSlug(node);
-  let note: string;
   if (listed.length > 0) {
     if (r.status === "found" || r.status === "corrected") r.status = "related";
-    note = `Version "${version}" not found for ${slug}. Available: ${listed.join(", ")}. Showing the unversioned resolution; identifiers may differ between versions.`;
-  } else {
-    if (r.status === "found") r.status = "corrected";
-    note = `The registry lists no versions for ${slug}, so "@${version}" could not be checked and was ignored.`;
+    const note = `Version "${version}" not found for ${extractNameSlug(node)}. Available: ${listed.join(", ")}. Showing the unversioned resolution; identifiers may differ between versions.`;
+    r.message = r.message ? `${note} ${r.message}` : note;
+    return r;
   }
-  r.message = r.message ? `${note} ${r.message}` : note;
-  return r;
+  // No versions listed: the version cannot be checked, so it is dropped.
+  return asCorrected(r);
+}
+
+/** Mark a successful resolution as corrected, dropping any message. */
+function asCorrected(r: ResolveResponse): ResolveResponse {
+  if (r.status !== "found" && r.status !== "corrected") return r;
+  const { message: _message, ...rest } = r;
+  return { ...rest, status: "corrected" };
 }
 
 /** Version-required source queried with a version it does not have. */
