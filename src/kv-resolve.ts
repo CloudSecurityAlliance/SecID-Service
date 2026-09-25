@@ -45,7 +45,7 @@ export async function resolveFromKV(
 ): Promise<ResolveResponse> {
   const ctx = new RegistryContext(kv);
 
-  // 0. Root query: "secid" or "secid:" → list all 8 types
+  // 0. Root query: "secid" or "secid:" → list every type
   const trimmed = input.trim();
   if (/^secid:?$/i.test(trimmed)) {
     const types: Array<{ type: string; description: string; namespace_count: number }> = [];
@@ -272,7 +272,7 @@ function buildPartialRegistry(
  *
  * Fetches the "secid:*" KV key — a single combined child_index across all types.
  * Pattern-matches the input to find which type(s) and namespace(s) contain it,
- * then resolves across all matches. One KV read instead of seven.
+ * then resolves across all matches. One KV read instead of one per type.
  */
 async function searchBareIdentifier(
   ctx: RegistryContext,

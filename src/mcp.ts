@@ -770,7 +770,7 @@ function createMcpServer(
   server.resource(
     "registry",
     "secid://registry",
-    { description: `Full listing of all SecID types and their namespace counts. SecID covers ${TYPE_REGISTRY.length} types: ${TYPES_INLINE}. 700+ namespaces total.` },
+    { description: `Full listing of all SecID types and their namespace counts. SecID covers ${TYPE_REGISTRY.length} types: ${TYPES_INLINE}. Read this resource for the current per-type namespace counts.` },
     async () => {
       const listing: Record<string, number> = {};
       const ctx = new RegistryContext(registryKv);
