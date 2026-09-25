@@ -34,10 +34,14 @@ SecID-Service/
 │   ├── kv-registry.ts      # KV reads for registry data
 │   ├── kv-resolve.ts       # KV-backed resolution path
 │   ├── observability.ts    # Error recording to KV (UUIDv7 keys)
+│   ├── feedback.ts         # submit_feedback records (secid_FEEDBACK KV)
+│   ├── demand.ts           # Namespace-miss demand signal (Analytics Engine)
 │   └── types.ts            # Shared types
 ├── scripts/
 │   ├── build-registry.ts        # Compiles SecID JSON → src/registry.ts (test snapshot)
 │   ├── upload-registry-kv.ts    # Uploads registry to KV (--sync deletes orphans)
+│   ├── export-misses.ts         # Read-only demand digest from Analytics Engine (docs/DEMAND-SIGNAL.md)
+│   ├── update-tlds.ts           # Regenerates src/tlds.ts from IANA
 │   └── setup-dns.sh
 ├── test/                   # vitest tests (auto-generated fixtures from registry)
 ├── website/                # Astro static site (served from same Worker)
@@ -67,6 +71,8 @@ npx tsx scripts/upload-registry-kv.ts --sync /path/to/SecID            # apply
 - **KV namespaces:**
   - `secid_REGISTRY` (id `cfbc271787614516a39fa43d9ca4f95a`) — registry data: one key per namespace plus the type, global and meta index keys
   - `secid_OBSERVABILITY` (id `c5cbc52b9a724433b3043efdf31857f4`) — error logging
+  - `secid_FEEDBACK` (id `61642c6485674ef597cbff50fe9b9f18`) — `submit_feedback` records (`feedback:<uuid>`); legacy `miss:*` keys remain but are no longer written
+- **Analytics Engine:** binding `secid_DEMAND` → dataset `secid_demand_misses` — namespace-miss demand signal (validated fields only, no caller text; three-month retention). Export with `scripts/export-misses.ts`; see [docs/DEMAND-SIGNAL.md](docs/DEMAND-SIGNAL.md)
 
 ## Deploy Chain
 

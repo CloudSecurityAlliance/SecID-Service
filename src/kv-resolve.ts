@@ -1,7 +1,7 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
 import { resolve, isOpenPattern, MAX_REGEX_INPUT_CHARS } from "./resolver";
-import { recordMiss } from "./feedback";
+import { recordDemandMiss, type DemandChannel } from "./demand";
 import {
   isResolutionResult,
   SECID_TYPES,
@@ -28,14 +28,16 @@ import {
  * 6. Build a real (but partial) Registry and resolve
  */
 /**
- * Optional hook for capturing namespace-level misses. When provided, a
- * `not_found` whose namespace isn't in the type index (a recognized type +
- * an unregistered namespace) is recorded to the feedback KV as a `miss:` key.
- * Passing `waitUntil` keeps the KV write off the response path.
+ * Optional hook for capturing namespace-level misses. When `demand` is
+ * provided, a `not_found` whose namespace isn't in the type index (a recognized
+ * type + an unregistered namespace) is written to Analytics Engine as a demand
+ * data point (src/demand.ts). `feedbackKv` is the submit_feedback store; it is
+ * carried here because the MCP server receives both through one object.
  */
 export interface MissCapture {
+  demand?: AnalyticsEngineDataset;
+  channel?: DemandChannel;
   feedbackKv?: KVNamespace;
-  waitUntil?: (p: Promise<unknown>) => void;
 }
 
 export async function resolveFromKV(
@@ -166,10 +168,19 @@ export async function resolveFromKV(
   if (isNamespaceMiss) {
     result.message = `Namespace "${parsed.namespace}" not found in type "${type}". MCP clients can request it with the submit_feedback tool.`;
 
-    if (capture?.feedbackKv) {
-      const write = recordMiss(capture.feedbackKv, type, parsed.namespace!, input);
-      if (capture.waitUntil) capture.waitUntil(write);
-      else await write;
+    // Demand is keyed case-insensitively, so a case variant of a registered
+    // namespace is not a gap and is not recorded.
+    const lower = parsed.namespace!.toLowerCase();
+    const registeredCaseVariant = typeIndex.namespaces.some(
+      (n) => n.namespace.toLowerCase() === lower
+    );
+    if (capture?.demand && !registeredCaseVariant) {
+      recordDemandMiss(capture.demand, {
+        type,
+        namespace: parsed.namespace!,
+        channel: capture.channel ?? "rest",
+        status: result.status,
+      });
     }
   }
 

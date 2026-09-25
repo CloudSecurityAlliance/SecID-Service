@@ -44,11 +44,16 @@ describe("prototype keys are not namespaces", () => {
 
   it("secid:advisory/constructor records no miss", async () => {
     const feedback = countingKv(env.secid_FEEDBACK!);
+    const points: AnalyticsEngineDataPoint[] = [];
+    const demand = { writeDataPoint: (p?: AnalyticsEngineDataPoint) => p && points.push(p) };
     const result = await resolveFromKV(env.secid_REGISTRY!, "secid:advisory/constructor", {
       feedbackKv: feedback.kv,
+      demand,
+      channel: "rest",
     });
     expect(result.status).toBe("not_found");
     expect(feedback.stats.puts).toEqual([]);
+    expect(points).toEqual([]);
   });
 });
 
