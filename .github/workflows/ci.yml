@@ -1,0 +1,64 @@
+name: CI
+
+# Pull-request gate: typecheck, build the website, run the test suite.
+#
+# It never deploys and needs no secrets, so it is safe on PRs from forks. It
+# mirrors the test half of registry-kv-upload.yml, including building the
+# registry snapshot from the current SecID main: src/registry.ts is gitignored
+# and test fixtures are generated from it, so tests against a stale or missing
+# snapshot would not predict what the deploy workflow's own test step will do.
+#
+# Safety note: no GitHub event data is interpolated into shell commands.
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout SecID-Service
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Checkout SecID spec repo (main)
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: CloudSecurityAlliance/SecID
+          path: secid-spec
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install website dependencies
+        run: cd website && npm ci
+
+      - name: Build registry snapshot for tests
+        run: npx tsx scripts/build-registry.ts ./secid-spec
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Build website
+        run: npm run build:website
+
+      - name: Run tests
+        run: npm test
