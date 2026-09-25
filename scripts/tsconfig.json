@@ -1,0 +1,11 @@
+{
+  // Maintenance scripts run under Node (tsx), not in the Worker, so they get
+  // Node's types. Kept separate from the root config so Node globals (Buffer,
+  // process, fs) never type-check inside src/, where they do not exist at runtime.
+  // Workers types are kept because scripts import shared types from src/.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "@cloudflare/workers-types"]
+  },
+  "include": ["./**/*.ts"]
+}

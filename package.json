@@ -13,7 +13,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "typecheck": "tsc --noEmit -p . && tsc --noEmit -p scripts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.27.1",
@@ -23,6 +24,7 @@
     "@cloudflare/vitest-pool-workers": "^0.12.19",
     "@cloudflare/workers-types": "^4.20250214.0",
     "@playwright/test": "^1.58.2",
+    "@types/node": "^22.20.4",
     "dotenv": "^17.3.1",
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
