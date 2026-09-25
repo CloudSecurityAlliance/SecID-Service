@@ -128,7 +128,22 @@ export async function resolveFromKV(
   }
 
   // 5. Determine which namespace(s) to fetch
-  const namespacesToFetch = determineNamespaces(parsed, typeIndex);
+  let namespacesToFetch: string[];
+  if (!parsed.namespace && parsed.name) {
+    // Cross-source search. Resolve against candidate namespaces from the
+    // indexes only — never by fetching every namespace of the type.
+    namespacesToFetch = await crossSourceCandidates(ctx, type, parsed.name, typeIndex);
+    if (namespacesToFetch.length === 0) {
+      return {
+        secid_query: input,
+        status: "not_found",
+        results: [],
+        message: `No results found for "${parsed.name}" in type "${type}". If this source should be covered, request it at https://github.com/CloudSecurityAlliance/SecID/issues`,
+      };
+    }
+  } else {
+    namespacesToFetch = determineNamespaces(parsed, typeIndex);
+  }
 
   // 6. Fetch namespace data
   const nsMap = await ctx.getNamespaces(type, namespacesToFetch);
@@ -212,16 +227,85 @@ function determineNamespaces(
     return namespaces;
   }
 
-  // Cross-source search: no namespace, has name (identifier)
-  if (parsed.name) {
-    const matches = findMatchingNamespaces(parsed.name, typeIndex.child_index);
-    return matches.length > 0
-      ? matches
-      : typeIndex.namespaces.map((n) => n.namespace);
+  // Cross-source search is handled by crossSourceCandidates; type-only
+  // listings are answered from the TypeIndex before we get here.
+  return [];
+}
+
+/**
+ * Namespaces that could answer a cross-source search (`secid:<type>/<term>`).
+ *
+ * The resolver's typeScopedSearch reports three kinds of hit: a child pattern
+ * (an item identifier), a source-level pattern (the source's own name, "cwe"),
+ * and a namespace identity (the org's name, "ismap"). Each has an index:
+ *
+ *   - child patterns   → this type's TypeIndex.child_index (already loaded)
+ *   - source patterns  → the global index's level:"source" entries
+ *   - identities       → the global index's name_index
+ *
+ * Child matches on a discriminating (non-open) pattern keep their existing
+ * precedence: when any exist, they alone decide the candidate set, exactly as
+ * before. Otherwise the two global indexes supply candidates in a single KV
+ * read, alongside any open-pattern child matches.
+ *
+ * This replaces a fallback that fetched every namespace of the type when no
+ * child pattern matched — about a thousand KV reads for `entity` and seconds of
+ * latency, reachable by any unmatched term. It returns the same results: a
+ * namespace outside these candidates cannot produce a typeScopedSearch hit,
+ * because each kind of hit is exactly what one of the indexes records. Open
+ * source-level patterns are skipped, mirroring nodeMatches() for an unscoped
+ * search (no registry source node pairs an open pattern with known_values).
+ *
+ * An empty result means not_found without touching namespace data. If the
+ * global index is missing (an older deploy), that is also the answer: failing
+ * closed to not_found is better than reopening the full scan.
+ */
+async function crossSourceCandidates(
+  ctx: RegistryContext,
+  type: SecIDType,
+  name: string,
+  typeIndex: TypeIndex
+): Promise<string[]> {
+  const tight = typeIndex.child_index.filter((e) => !isOpenPattern(e.patterns));
+  const open = typeIndex.child_index.filter((e) => isOpenPattern(e.patterns));
+  const tightMatches = findMatchingNamespaces(name, tight);
+  if (tightMatches.length > 0) return tightMatches;
+
+  // An open child pattern matches almost any term, so it is a candidate (its
+  // known_values may still contain the term) but it is no evidence that the
+  // term is an item identifier. Letting it pre-empt the source and identity
+  // candidates is what made `secid:reference/arxiv` miss arxiv.org.
+  const matched = new Set<string>(findMatchingNamespaces(name, open));
+
+  const globalIndex = await ctx.getGlobalIndex();
+  if (!globalIndex) return [...matched];
+
+  if (name.length <= MAX_REGEX_INPUT_CHARS) {
+    for (const entry of globalIndex.child_index ?? []) {
+      if (entry.type !== type || entry.level !== "source") continue;
+      if (entry.open ?? isOpenPattern(entry.patterns)) continue;
+      if (matched.has(entry.namespace)) continue;
+      if (entry.patterns.some((pat) => testPattern(pat, name))) matched.add(entry.namespace);
+    }
   }
 
-  // Type-only query — resolver needs all namespaces for listing
-  return typeIndex.namespaces.map((n) => n.namespace);
+  const needle = name.trim().toLowerCase();
+  if (needle) {
+    for (const entry of globalIndex.name_index ?? []) {
+      if (entry.type === type && entry.aliases.includes(needle)) matched.add(entry.namespace);
+    }
+  }
+
+  return [...matched];
+}
+
+function testPattern(pat: string, input: string): boolean {
+  try {
+    const re = pat.startsWith("(?i)") ? new RegExp(pat.slice(4), "i") : new RegExp(pat);
+    return re.test(input);
+  } catch {
+    return false; // Invalid regex — skip
+  }
 }
 
 /**
