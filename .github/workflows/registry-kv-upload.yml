@@ -1,18 +1,27 @@
 name: Upload registry to KV
 
 # Triggers:
-#   - repository_dispatch (registry-updated): fires when CloudSecurityAlliance/SecID
-#     merges a registry change. The dispatch is sent by SecID's update-registry.yml.
-#   - push to main: any merge into this repo (code, website, docs). The registry
-#     content fetched from the SecID repo will be whatever main currently has;
-#     a docs-only push to this repo still triggers a full registry sync + deploy
-#     because src/registry.ts is regenerated each run and the Worker bundles it.
-#   - workflow_dispatch: manual trigger from the gh CLI / Actions UI.
+#   - repository_dispatch (registry-updated): sent by CloudSecurityAlliance/SecID's
+#     registry-ci.yml, and only after every registry validation gate passed.
+#     Its client_payload.ref is the SecID commit SHA those gates validated, and
+#     this workflow deploys exactly that commit — not whatever SecID main holds
+#     by the time this run starts, which may be a later push that has not been
+#     (or failed to be) validated.
+#   - push to main: any merge into this repo (code, website, docs). There is no
+#     validated SecID SHA for this event, so the registry comes from SecID main.
+#   - workflow_dispatch: manual trigger from the gh CLI / Actions UI; also SecID
+#     main.
 #
-# Safety note: this workflow does NOT interpolate untrusted GitHub event data
-# (issue titles, PR bodies, commit messages, etc.) into shell commands. The
-# only template expansions are `${{ secrets.SECID_SERVICE_DEPLOY }}` for the
-# Cloudflare token, which is a repo secret, not user input.
+# Every run syncs KV and deploys the Worker, because the Worker code and the KV
+# contents must match. The Worker itself does not bundle the registry;
+# src/registry.ts is regenerated here only so the tests run against the same
+# registry that is about to be uploaded.
+#
+# Safety note: no untrusted GitHub event data (issue titles, PR bodies, commit
+# messages, branch names) is interpolated into shell commands. The dispatch
+# payload's ref is passed through an environment variable and rejected unless
+# it is exactly 40 hex characters.
+
 on:
   repository_dispatch:
     types: [registry-updated]
@@ -20,21 +29,74 @@ on:
     branches: [main]
   workflow_dispatch:
 
+# Default-deny; the job grants only what it needs.
+permissions: {}
+
+# Two overlapping `--sync` runs can each delete keys the other just wrote (each
+# treats keys it did not produce as orphans). Serialize every deploy; never
+# cancel one mid-flight. A newer queued run supersedes an older *pending* one,
+# which is fine: the newer run deploys a newer registry.
+concurrency:
+  group: registry-deploy
+  cancel-in-progress: false
+
 jobs:
   upload:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
     steps:
       - name: Checkout SecID-Service
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+
+      - name: Select SecID revision
+        id: rev
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PAYLOAD_REF: ${{ github.event.client_payload.ref }}
+        run: |
+          if [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            # Fail closed: a dispatch without a validated SHA cannot say which
+            # registry passed the gates, and deploying main instead is exactly
+            # the race this check exists to prevent.
+            if [[ ! "$PAYLOAD_REF" =~ ^[0-9a-f]{40}$ ]]; then
+              echo "::error::repository_dispatch client_payload.ref must be a 40-hex commit SHA; refusing to deploy."
+              exit 1
+            fi
+            echo "ref=$PAYLOAD_REF" >> "$GITHUB_OUTPUT"
+            echo "pinned=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ref=main" >> "$GITHUB_OUTPUT"
+            echo "pinned=false" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Checkout SecID spec repo
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           repository: CloudSecurityAlliance/SecID
+          ref: ${{ steps.rev.outputs.ref }}
           path: secid-spec
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Confirm the dispatched SHA is on SecID main
+        if: steps.rev.outputs.pinned == 'true'
+        working-directory: secid-spec
+        env:
+          SHA: ${{ steps.rev.outputs.ref }}
+        run: |
+          git fetch --quiet origin main
+          if ! git merge-base --is-ancestor "$SHA" origin/main; then
+            echo "::error::$SHA is not an ancestor of SecID main; refusing to deploy."
+            exit 1
+          fi
+          echo "Deploying SecID registry at $SHA"
 
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
           cache: npm
@@ -45,7 +107,7 @@ jobs:
       - name: Install website dependencies
         run: cd website && npm ci
 
-      - name: Build registry bundle
+      - name: Build registry snapshot for tests
         run: npx tsx scripts/build-registry.ts ./secid-spec
 
       - name: Build website
