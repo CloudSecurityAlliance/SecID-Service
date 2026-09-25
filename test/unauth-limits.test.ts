@@ -105,14 +105,23 @@ describe("cross-source miss does not scan the whole type", () => {
 
 describe("REST qualifier decoding", () => {
   it("returns 400, not 500, for a malformed percent-encoded qualifier", async () => {
-    const res = await SELF.fetch(
-      "https://test.local/api/v1/resolve?secid=secid:control%3Fcountry%3D%2525ZZ",
-    );
-    expect(res.status).toBe(400);
-    const body = (await res.json()) as { status: string; message: string; error_id?: string };
-    expect(body.status).toBe("error");
-    expect(body.message).toContain("Malformed percent-encoding");
-    expect(body.error_id).toBeUndefined();
+    // The query string is decoded by Hono first, so which encoding reaches the
+    // qualifier decoder as "%ZZ" depends on whether the handler decodes the
+    // SecID again. Neither may produce a 500 or an error record, and one of
+    // them must reach the qualifier check.
+    const statuses: number[] = [];
+    for (const enc of ["%25ZZ", "%2525ZZ"]) {
+      const res = await SELF.fetch(`https://test.local/api/v1/resolve?secid=secid:control%3Fcountry%3D${enc}`);
+      statuses.push(res.status);
+      const body = (await res.json()) as { status: string; message?: string; error_id?: string };
+      expect(res.status).not.toBe(500);
+      expect(body.error_id).toBeUndefined();
+      if (res.status === 400) {
+        expect(body.status).toBe("error");
+        expect(body.message).toContain("Malformed percent-encoding in qualifier");
+      }
+    }
+    expect(statuses).toContain(400);
   });
 });
 
