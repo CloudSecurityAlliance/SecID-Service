@@ -1,7 +1,7 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
 import { resolve, isOpenPattern, toRegExp, MAX_REGEX_INPUT_CHARS } from "./resolver";
-import { recordDemandMiss, type DemandChannel } from "./demand";
+import { recordDemandMiss, type DemandChannel, type DemandMiss } from "./demand";
 import {
   isResolutionResult,
   SECID_TYPES,
@@ -38,6 +38,11 @@ export interface MissCapture {
   demand?: AnalyticsEngineDataset;
   channel?: DemandChannel;
   feedbackKv?: KVNamespace;
+  /**
+   * Internal to resolveQuery: when set, misses are collected here instead of
+   * written, so that only the attempt whose result is returned is recorded.
+   */
+  pendingMisses?: DemandMiss[];
 }
 
 export async function resolveFromKV(
@@ -176,12 +181,14 @@ export async function resolveFromKV(
       (n) => n.namespace.toLowerCase() === lower
     );
     if (capture?.demand && !registeredCaseVariant) {
-      recordDemandMiss(capture.demand, {
+      const miss = {
         type,
         namespace: parsed.namespace!,
         channel: capture.channel ?? "rest",
         status: result.status,
-      });
+      } as const;
+      if (capture.pendingMisses) capture.pendingMisses.push(miss);
+      else recordDemandMiss(capture.demand, miss);
     }
   }
 
@@ -228,22 +235,35 @@ export async function resolveQuery(
   input: string,
   capture?: MissCapture
 ): Promise<ResolveResponse> {
-  const asIs = await resolveFromKV(kv, input, capture);
-  if (asIs.status === "found" || asIs.status === "corrected") return asIs;
-  if (!/%[0-9A-Fa-f]{2}/.test(input)) return asIs;
+  // Each attempt collects its demand misses; only the attempt whose result is
+  // returned is recorded, so one query never writes two data points.
+  const asIsMisses: DemandMiss[] = [];
+  const asIs = await resolveFromKV(kv, input, withPending(capture, asIsMisses));
+  const settle = (result: ResolveResponse, misses: DemandMiss[]) => {
+    if (capture?.demand) for (const m of misses) recordDemandMiss(capture.demand, m);
+    return result;
+  };
+  if (asIs.status === "found" || asIs.status === "corrected") return settle(asIs, asIsMisses);
+  if (!/%[0-9A-Fa-f]{2}/.test(input)) return settle(asIs, asIsMisses);
 
   let decoded: string;
   try {
     decoded = decodeURIComponent(input);
   } catch {
-    return asIs; // Not valid percent-encoding, so a literal '%' — as-is stands.
+    // Not valid percent-encoding, so a literal '%' — as-is stands.
+    return settle(asIs, asIsMisses);
   }
-  if (decoded === input) return asIs;
+  if (decoded === input) return settle(asIs, asIsMisses);
 
-  const alt = await resolveFromKV(kv, decoded, capture);
+  const altMisses: DemandMiss[] = [];
+  const alt = await resolveFromKV(kv, decoded, withPending(capture, altMisses));
   return STATUS_RANK[alt.status] > STATUS_RANK[asIs.status]
-    ? { ...alt, secid_query: input }
-    : asIs;
+    ? settle({ ...alt, secid_query: input }, altMisses)
+    : settle(asIs, asIsMisses);
+}
+
+function withPending(capture: MissCapture | undefined, pendingMisses: DemandMiss[]): MissCapture | undefined {
+  return capture?.demand ? { ...capture, pendingMisses } : capture;
 }
 
 const STATUS_RANK: Record<ResolveResponse["status"], number> = {

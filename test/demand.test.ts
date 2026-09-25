@@ -3,7 +3,8 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
-import { resolveFromKV } from "../src/kv-resolve";
+import { resolveFromKV, resolveQuery } from "../src/kv-resolve";
+import worker from "../src/index";
 import {
   demandDataPoint,
   isPlausibleNamespace,
@@ -166,4 +167,66 @@ describe("the Worker's real binding (miniflare)", () => {
     const body = (await res.json()) as { status: string };
     expect(body.status).toBe("not_found");
   });
+});
+
+// resolveQuery (the entry point REST and every MCP tool use) must keep passing
+// the capture through to the namespace-miss branch, and — because it may try a
+// query twice (as-is, then percent-decoded) — must record at most one point.
+describe("resolveQuery miss capture", () => {
+  it("records a namespace miss once", async () => {
+    const { dataset, points } = fakeDataset();
+    const r = await resolveQuery(env.secid_REGISTRY, "secid:entity/some-new-vendor.io", { demand: dataset, channel: "rest" });
+    expect(r.status).toBe("not_found");
+    expect(points.map((p) => p.blobs)).toEqual([["entity", "some-new-vendor.io", "rest", "not_found"]]);
+  });
+
+  it("records once when the query is also retried percent-decoded", async () => {
+    const { dataset, points } = fakeDataset();
+    const r = await resolveQuery(env.secid_REGISTRY, "secid:advisory/some-new-vendor.io/x%23ADV-1", { demand: dataset, channel: "mcp" });
+    expect(r.status).toBe("not_found");
+    expect(points).toHaveLength(1);
+    expect(points[0].blobs).toEqual(["advisory", "some-new-vendor.io", "mcp", "not_found"]);
+  });
+});
+
+describe("demand capture through the Worker's handlers", () => {
+  const ctx = { waitUntil: () => {}, passThroughOnException: () => {} } as unknown as ExecutionContext;
+
+  it("REST /api/v1/resolve records a namespace miss with channel rest", async () => {
+    const { dataset, points } = fakeDataset();
+    const res = await worker.fetch(
+      new Request("https://x/api/v1/resolve?secid=secid:entity/some-new-vendor.io"),
+      { ...env, secid_DEMAND: dataset },
+      ctx,
+    );
+    expect(((await res.json()) as { status: string }).status).toBe("not_found");
+    expect(points.map((p) => p.blobs)).toEqual([["entity", "some-new-vendor.io", "rest", "not_found"]]);
+  });
+
+  const toolArgs: Record<string, Record<string, string>> = {
+    resolve: { secid: "secid:entity/some-new-vendor.io" },
+    lookup: { type: "entity", identifier: "some-new-vendor.io" },
+    describe: { secid: "secid:entity/some-new-vendor.io" },
+  };
+  for (const tool of Object.keys(toolArgs)) {
+    it(`MCP ${tool} records a namespace miss with channel mcp`, async () => {
+      const { dataset, points } = fakeDataset();
+      const res = await worker.fetch(
+        new Request("https://x/mcp", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+          body: JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "tools/call",
+            params: { name: tool, arguments: toolArgs[tool] },
+          }),
+        }),
+        { ...env, secid_DEMAND: dataset },
+        ctx,
+      );
+      expect(res.status).toBe(200);
+      expect(points.map((p) => p.blobs)).toEqual([["entity", "some-new-vendor.io", "mcp", "not_found"]]);
+    });
+  }
 });
