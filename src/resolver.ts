@@ -187,8 +187,19 @@ function resolveWithName(
     );
   }
 
-  // A version the source does not have must not come back as "found".
   if (parsed.version) {
+    // A version alias (ADR-015) is answered as its canonical version, so the
+    // result SecIDs name the release the data actually comes from.
+    const alias = matchVersionAlias(matchedNode, parsed.version);
+    if (alias) {
+      const canonical = { ...parsed, version: alias.canonical };
+      if (alias.onMatch === "redirect") {
+        return versionRedirect(query, parsed.version, canonical, matchedNode);
+      }
+      parsed = canonical;
+    }
+
+    // A version the source does not have must not come back as "found".
     const versionOutcome = resolveVersionMismatch(query, parsed, matchedNode, ns, typeRegistry);
     if (versionOutcome) return versionOutcome;
   }
@@ -204,18 +215,128 @@ function resolveWithName(
 
 // ── Version Checking ──
 
+interface VersionAliasMatch {
+  canonical: string;
+  onMatch: "resolve" | "redirect";
+}
+
+/**
+ * If `version` is an alias of another version of this source, return the
+ * canonical version and how the alias is answered. Null for a canonical or
+ * unknown version.
+ *
+ * `versions_available[].aliases` is authoritative (it carries `on_match`).
+ * The tree is consulted as well: a version node matched through a pattern
+ * other than its `patterns[0]` literal is an alias of that literal, answered
+ * as `resolve` — the registry validator keeps the two in step, so this only
+ * matters for data that has drifted.
+ */
+function matchVersionAlias(node: MatchNode, version: string): VersionAliasMatch | null {
+  for (const entry of node.data.versions_available ?? []) {
+    const alias = entry.aliases?.find((a) => a.label === version);
+    if (alias && entry.version !== version) {
+      return { canonical: entry.version, onMatch: alias.on_match === "redirect" ? "redirect" : "resolve" };
+    }
+  }
+  if (node.data.version_required && node.children?.length) {
+    const child = node.children.find((c) => matchesAnyPattern(c.patterns, version));
+    const canonical = child ? patternLiteral(child.patterns[0] ?? "") : null;
+    if (canonical && canonical !== version) return { canonical, onMatch: "resolve" };
+  }
+  return null;
+}
+
+/**
+ * The literal string an anchored pattern matches, or null when it is not a
+ * plain literal (ADR-015: a version node's patterns[0] is the canonical form).
+ * `(?i)^1\.1\.1$` → "1.1.1".
+ */
+function patternLiteral(pat: string): string | null {
+  const body = pat.replace(/^\(\?i\)/, "").replace(/^\^/, "").replace(/\$$/, "");
+  let out = "";
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "\\") {
+      const next = body[i + 1];
+      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null; // \d, \w, ...
+      out += next;
+      i++;
+    } else if (".*+?()[]{}|^$".includes(ch)) {
+      return null;
+    } else {
+      out += ch;
+    }
+  }
+  return out || null;
+}
+
+/** An alias whose on_match is "redirect": no data, the canonical SecID in the message. */
+function versionRedirect(
+  query: string,
+  asked: string,
+  canonical: ParsedSecID,
+  node: MatchNode
+): ResolveResponse {
+  const base = `secid:${canonical.type}/${canonical.namespace}/${extractNameSlug(node)}@${canonical.version}`;
+  const target = canonical.subpath ? `${base}#${canonical.subpath}` : base;
+  return response(
+    query,
+    "corrected",
+    [],
+    `Version "${asked}" is an alias of ${canonical.version}. Query ${target} instead.`
+  );
+}
+
+const ISSUES_URL = "https://github.com/CloudSecurityAlliance/SecID/issues";
+
+/** "1.1.1 (current; aliases 1.1, v1.1), 1.1.0 (superseded, 2026-06-22)" */
+function describeVersions(node: MatchNode): string {
+  const entries = node.data.versions_available ?? [];
+  if (entries.length === 0) return "none listed";
+  return entries
+    .map((e) => {
+      const facts: string[] = [];
+      const status = [e.status, e.release_date].filter(Boolean).join(", ");
+      if (status) facts.push(status);
+      const labels = (e.aliases ?? []).map((a) => a.label);
+      if (labels.length) facts.push(`aliases ${labels.join(", ")}`);
+      return facts.length ? `${e.version} (${facts.join("; ")})` : e.version;
+    })
+    .join(", ");
+}
+
+/**
+ * An item asked for under a version the source does not have (ADR-015).
+ *
+ * not_found, never another version's item: IDs can designate a different
+ * item in another release (54 AICM control IDs changed meaning in 1.1.0), so
+ * a substitute answer would be confidently wrong. The message lists the known
+ * versions and where to report a missing release.
+ */
+function versionNotFound(query: string, parsed: ParsedSecID, node: MatchNode): ResolveResponse {
+  const slug = extractNameSlug(node);
+  return response(
+    query,
+    "not_found",
+    [],
+    `Version "${parsed.version}" is not a known version of ${slug}. Known versions: ${describeVersions(node)}. ` +
+      `To list versions, describe the source without a version (secid:${parsed.type}/${parsed.namespace}/${slug}). ` +
+      `Report a genuinely missing release via the submit_feedback tool (include a source URL) or ${ISSUES_URL}`
+  );
+}
+
 /**
  * Handle an @version the matched source cannot honour. Returns null when the
  * version is fine and normal resolution should proceed.
  *
  * Follows the four outcomes in SecID docs/reference/VERSIONING.md:
  *
- *  - version_required source, version not among its version nodes → related:
- *    IDs are reused across versions, so guessing an edition would be a silent
- *    wrong answer. Return the source with versions_available instead.
- *  - source lists versions_available, version not among them → related: the
- *    unversioned (current) resolution is returned as the nearest match, with a
- *    note that cross-version IDs may differ.
+ *  - source has versions (version nodes or versions_available), version not
+ *    among them, with a subpath → not_found with the known versions and where
+ *    to report a missing release (ADR-015). Another version's item is never
+ *    substituted: IDs can change meaning between releases.
+ *  - the same without a subpath → related: a discovery question, answered
+ *    with the source and its versions.
  *  - version differs from a listed one only by case → corrected, using the
  *    listed spelling.
  *  - source lists no versions → corrected: the version cannot be checked, so
@@ -239,7 +360,8 @@ function resolveVersionMismatch(
   if (node.data.version_required) {
     if (!node.children?.length) return null; // nothing to check against
     const known = node.children.some((c) => matchesAnyPattern(c.patterns, version));
-    return known ? null : versionRequiredMiss(query, parsed, node);
+    if (known) return null;
+    return parsed.subpath ? versionNotFound(query, parsed, node) : versionRequiredMiss(query, parsed, node);
   }
 
   if (listed.includes(version)) return null;
@@ -255,10 +377,12 @@ function resolveVersionMismatch(
     return asCorrected(withVersion(caseMatch));
   }
 
+  if (listed.length > 0 && parsed.subpath) return versionNotFound(query, parsed, node);
+
   const r = withVersion(null);
   if (listed.length > 0) {
     if (r.status === "found" || r.status === "corrected") r.status = "related";
-    const note = `Version "${version}" not found for ${extractNameSlug(node)}. Available: ${listed.join(", ")}. Showing the unversioned resolution; identifiers may differ between versions.`;
+    const note = `Version "${version}" not found for ${extractNameSlug(node)}. Known versions: ${describeVersions(node)}. Showing the source without a version.`;
     r.message = r.message ? `${note} ${r.message}` : note;
     return r;
   }
@@ -279,7 +403,6 @@ function versionRequiredMiss(
   parsed: ParsedSecID,
   node: MatchNode
 ): ResolveResponse {
-  const versions = (node.data.versions_available ?? []).map((v) => v.version);
   const nameSlug = extractNameSlug(node);
   return response(
     query,
@@ -293,7 +416,7 @@ function versionRequiredMiss(
         version_disambiguation: node.data.version_disambiguation ?? null,
       },
     }],
-    `Version "${parsed.version}" not found. Available: ${versions.join(", ") || "none listed"}`
+    `Version "${parsed.version}" is not a known version of ${nameSlug}. Known versions: ${describeVersions(node)}.`
   );
 }
 
@@ -413,7 +536,7 @@ function resolveVersioned(
   );
 
   if (!versionChild) {
-    return versionRequiredMiss(query, parsed, node);
+    return parsed.subpath ? versionNotFound(query, parsed, node) : versionRequiredMiss(query, parsed, node);
   }
 
   // No subpath — describe version

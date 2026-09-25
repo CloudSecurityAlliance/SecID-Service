@@ -133,8 +133,15 @@ describe("@version the source does not have (M2)", () => {
   it("source listing versions: unknown version is related, with the available list", () => {
     const r = resolveLocal("secid:control/nist.gov/csf@9.9");
     expect(r.status).toBe("related");
-    expect(r.message).toContain("Available: 2.0, 1.1");
+    expect(r.message).toMatch(/Known versions: 2\.0\b.*1\.1\b/);
     expect(secids(r)).toEqual(["secid:control/nist.gov/csf"]);
+  });
+
+  it("source listing versions: unknown version with a subpath is not_found, never another version's item", () => {
+    const r = resolveLocal("secid:control/nist.gov/csf@9.9#PR.AC-1");
+    expect(r.status).toBe("not_found");
+    expect(r.results).toEqual([]);
+    expect(r.message).toContain("https://github.com/CloudSecurityAlliance/SecID/issues");
   });
 
   it("listed version still resolves as found", () => {
@@ -150,13 +157,20 @@ describe("@version the source does not have (M2)", () => {
     expect(secids(r)[0]).toBe("secid:control/nist.gov/800-53@rev5#AC-1");
   });
 
-  it("version-required source: unknown version is related with versions_available", () => {
-    for (const q of ["secid:weakness/owasp.org/top10@1999#A01", "secid:weakness/owasp.org/top10@bogus"]) {
-      const r = resolveLocal(q);
-      expect(r.status).toBe("related");
-      const data = (r.results[0] as unknown as { data: { versions_available: unknown[] } }).data;
-      expect(data.versions_available.length).toBeGreaterThan(0);
-    }
+  it("version-required source without a subpath: unknown version is related with versions_available", () => {
+    const r = resolveLocal("secid:weakness/owasp.org/top10@bogus");
+    expect(r.status).toBe("related");
+    const data = (r.results[0] as unknown as { data: { versions_available: unknown[] } }).data;
+    expect(data.versions_available.length).toBeGreaterThan(0);
+  });
+
+  it("version-required source with a subpath: unknown version is not_found with guidance (ADR-015)", () => {
+    const r = resolveLocal("secid:weakness/owasp.org/top10@1999#A01");
+    expect(r.status).toBe("not_found");
+    expect(r.results).toEqual([]);
+    expect(r.message).toContain("Known versions:");
+    expect(r.message).toContain("submit_feedback");
+    expect(r.message).toContain("https://github.com/CloudSecurityAlliance/SecID/issues");
   });
 
   it("no corrected response carries a message (API-RESPONSE-FORMAT.md)", () => {
@@ -174,6 +188,108 @@ describe("@version the source does not have (M2)", () => {
   it("version-required source: known version unchanged", () => {
     expect(resolveLocal("secid:weakness/owasp.org/top10@2021").status).toBe("found");
     expect(resolveLocal("secid:weakness/owasp.org/top10@2021#A01").status).toBe("found");
+  });
+});
+
+describe("version aliases (ADR-015)", () => {
+  const AICM = "secid:control/cloudsecurityalliance.org/aicm";
+  const CAIQ = "secid:control/cloudsecurityalliance.org/aicm-caiq";
+
+  for (const label of ["1.1", "v1.1"]) {
+    it(`aicm@${label} echoes the canonical version 1.1.1`, () => {
+      const r = resolveLocal(`${AICM}@${label}#LOG-15`);
+      expect(r.status).toBe("found");
+      expect(r.secid_query).toBe(`${AICM}@${label}#LOG-15`);
+      expect(secids(r).length).toBeGreaterThan(0);
+      expect(secids(r).every((s) => s === `${AICM}@1.1.1#LOG-15`)).toBe(true);
+    });
+  }
+
+  it("aicm@1.1 without a subpath describes 1.1.1", () => {
+    const r = resolveLocal(`${AICM}@1.1`);
+    expect(r.status).toBe("found");
+    expect(secids(r)).toEqual([`${AICM}@1.1.1`]);
+  });
+
+  it("aicm@1.1.0 is a real version and stays unchanged", () => {
+    const r = resolveLocal(`${AICM}@1.1.0#LOG-15`);
+    expect(r.status).toBe("found");
+    expect(secids(r).every((s) => s === `${AICM}@1.1.0#LOG-15`)).toBe(true);
+  });
+
+  it("aicm@1.1.1 resolves as itself", () => {
+    const r = resolveLocal(`${AICM}@1.1.1#LOG-15`);
+    expect(r.status).toBe("found");
+    expect(secids(r).every((s) => s === `${AICM}@1.1.1#LOG-15`)).toBe(true);
+  });
+
+  for (const label of ["1.1", "v1.1"]) {
+    it(`AI-CAIQ (aicm-caiq)@${label} echoes 1.1.0`, () => {
+      const r = resolveLocal(`${CAIQ}@${label}#LOG-15.1`);
+      expect(r.status).toBe("found");
+      expect(secids(r).length).toBeGreaterThan(0);
+      expect(secids(r).every((s) => s === `${CAIQ}@1.1.0#LOG-15.1`)).toBe(true);
+    });
+  }
+
+  it("the REST path echoes the canonical version too", async () => {
+    const body = await rest(`${AICM}@1.1%23LOG-15`);
+    expect(body.status).toBe("found");
+    expect(secids(body)[0]).toBe(`${AICM}@1.1.1#LOG-15`);
+  });
+
+  it("aicm@9.9#LOG-15 is not_found with the version list and the issues link", () => {
+    const r = resolveLocal(`${AICM}@9.9#LOG-15`);
+    expect(r.status).toBe("not_found");
+    expect(r.results).toEqual([]);
+    expect(r.message).toContain("1.1.1 (current");
+    expect(r.message).toContain("aliases 1.1, v1.1");
+    expect(r.message).toContain("https://github.com/CloudSecurityAlliance/SecID/issues");
+  });
+
+  describe("on_match redirect", () => {
+    const registry: Registry = {
+      reference: {
+        "test.example": fakeNamespace([
+          {
+            patterns: ["(?i)^spec$"],
+            description: "Versioned spec",
+            weight: 100,
+            data: {
+              version_required: true,
+              versions_available: [
+                { version: "2.0", status: "current", aliases: [{ label: "2", on_match: "redirect" }] },
+              ],
+            },
+            children: [
+              {
+                patterns: ["^2\\.0$", "^2$"],
+                description: "Spec 2.0",
+                weight: 100,
+                data: {},
+                children: [
+                  { patterns: ["^S-\\d+$"], description: "Section", weight: 100, data: { url: "https://test.example/2.0/{id}" } },
+                ],
+              },
+            ],
+          },
+        ]),
+      },
+    };
+    const run = (q: string) => resolve(parseSecID(q, registry), registry);
+
+    it("returns corrected with no results and the canonical SecID in the message", () => {
+      const r = run("secid:reference/test.example/spec@2#S-1");
+      expect(r.status).toBe("corrected");
+      expect(r.results).toEqual([]);
+      expect(r.message).toContain("secid:reference/test.example/spec@2.0#S-1");
+    });
+
+    it("the canonical version resolves normally", () => {
+      const r = run("secid:reference/test.example/spec@2.0#S-1");
+      expect(r.status).toBe("found");
+      expect(secids(r)).toEqual(["secid:reference/test.example/spec@2.0#S-1"]);
+    });
   });
 });
 

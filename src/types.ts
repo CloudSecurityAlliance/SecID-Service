@@ -103,8 +103,21 @@ export interface MatchNodeData {
 
 export interface VersionInfo {
   version: string;
-  release_date?: string;
+  release_date?: string | null;
   status?: string;
+  note?: string;
+  /** Other labels for this release (ADR-015). Curated, never derived. */
+  aliases?: VersionAlias[];
+}
+
+/**
+ * A second official label for one release. `resolve` serves the canonical
+ * version's data (found); `redirect` returns no data (corrected) and names
+ * the canonical SecID in the message.
+ */
+export interface VersionAlias {
+  label: string;
+  on_match: "resolve" | "redirect";
   note?: string;
 }
 
