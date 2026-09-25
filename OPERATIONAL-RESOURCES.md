@@ -14,7 +14,7 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Inputs:** HTTP requests, KV reads from `secid_REGISTRY`
 - **Outputs:** JSON resolver responses, MCP JSON-RPC responses, static HTML, error records into `secid_OBSERVABILITY`
 - **Status:** production
-- **Last touched:** 2026-04-30
+- **Last touched:** 2026-09-25
 - **Next review:** 2026-08-01
 - **Cadence:** request-driven (no schedule)
 - **Health check:** `curl https://secid.cloudsecurityalliance.org/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228` — should return JSON envelope with a URL
@@ -32,7 +32,7 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Inputs:** registry JSON files in [CloudSecurityAlliance/SecID](https://github.com/CloudSecurityAlliance/SecID) `registry/**/*.json` (724 namespaces as of 2026-05-07)
 - **Outputs:** KV keys consumed by the Worker resolver
 - **Status:** production
-- **Last touched:** 2026-04-30 (last successful sync — chain has been broken since)
+- **Last touched:** 2026-09-25 (last successful sync — chain has been broken since)
 - **Next review:** unblock as part of FRICTION-001 resolution; then quarterly thereafter
 - **Cadence:** auto-synced on push to `registry/**/*.json` in the SecID repo
 - **Health check:** `wrangler kv key list --namespace-id=cfbc271787614516a39fa43d9ca4f95a | wc -l` should match the namespace count produced by `build-registry.ts`
@@ -61,18 +61,18 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 
 **What it does.** Two-stage auto-deploy from registry JSON changes to live KV + Worker:
 
-1. **Stage 1 (SecID repo):** [`update-registry.yml`](https://github.com/CloudSecurityAlliance/SecID/blob/main/.github/workflows/update-registry.yml) — fires on push to `main` touching `registry/**/*.json`; sends `repository_dispatch` to SecID-Service using `SECID_TO_SERVICE_DISPATCH` PAT
+1. **Stage 1 (SecID repo):** [`registry-ci.yml`](https://github.com/CloudSecurityAlliance/SecID/blob/main/.github/workflows/registry-ci.yml) (replaced `update-registry.yml`) — on push to `main`, runs the registry validation gates; only if all pass does its `notify-service` job send `repository_dispatch` to SecID-Service using the `SECID_TO_SERVICE_DISPATCH` PAT, with `client_payload.ref` set to the validated commit SHA
 2. **Stage 2 (this repo):** [`.github/workflows/registry-kv-upload.yml`](.github/workflows/registry-kv-upload.yml) — receives dispatch, checks out both repos, runs `build-registry.ts`, builds website, runs `vitest`, uploads to KV in `--sync` mode using `SECID_SERVICE_DEPLOY` Cloudflare token, deploys Worker
 
 - **Runtime:** GitHub Actions runners (`ubuntu-latest`, Node 22)
 - **Inputs:** push events on registry JSON; `repository_dispatch` events of type `registry-updated`
 - **Outputs:** updated `secid_REGISTRY` KV; redeployed Worker
-- **Status:** **broken** since 2026-04-30 — see [FRICTION-001](FRICTION/FRICTION-001.md) and [WAITING-FOR-001](WAITING-FOR/WAITING-FOR-001.md). Auto-trigger fails (`SECID_TO_SERVICE_DISPATCH` token unauthorized); manual `workflow_dispatch` of Stage 2 fails on `cve-schema` Vitest test failure
-- **Last touched:** 2026-04-30
-- **Next review:** weekly until FRICTION-001 is resolved; then 2026-09-01
+- **Status:** working — `repository_dispatch` runs succeed as of 2026-09-25. The 2026-04-30 breakage is recorded in [FRICTION-001](FRICTION/FRICTION-001.md)
+- **Last touched:** 2026-09-25
+- **Next review:** 2026-12-01
 - **Cadence:** event-driven (every push to `registry/**/*.json`)
-- **Health check:** `gh run list --workflow=registry-kv-upload.yml --limit 3 -R CloudSecurityAlliance/SecID-Service` — most recent run should be `success`. Currently shows `failure`/no-recent-runs
-- **Runbook:** See FRICTION-001 for current breakage and partial workarounds. Local audit (no mutations): `npx tsx scripts/upload-registry-kv.ts --sync --dry-run /path/to/SecID` from this repo with a working `CLOUDFLARE_API_TOKEN`
+- **Health check:** `gh run list --workflow=registry-kv-upload.yml --limit 3 -R CloudSecurityAlliance/SecID-Service` — most recent run should be `success`
+- **Runbook:** See FRICTION-001 for past failure modes and workarounds. Local audit (no mutations): `npx tsx scripts/upload-registry-kv.ts --sync --dry-run /path/to/SecID` from this repo with a working `CLOUDFLARE_API_TOKEN`
 - **Owner:** Kurt Seifried
 
 ## DNS — `secid.cloudsecurityalliance.org`

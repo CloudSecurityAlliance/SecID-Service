@@ -17,7 +17,7 @@ The Worker reads from Cloudflare KV (binding `secid_REGISTRY`) and serves resolu
 |------|---------|
 | [SecID](https://github.com/CloudSecurityAlliance/SecID) | Specification + registry data (source of truth) |
 | **SecID-Service** (this repo) | Cloudflare Worker REST API + MCP server (production) |
-| [SecID-Server-API](https://github.com/CloudSecurityAlliance/SecID-Server-API) | Self-hosted resolver (Python, TypeScript, Docker) |
+| [SecID-Server-API](https://github.com/CloudSecurityAlliance/SecID-Server-API) | Self-hosted resolver (Python; TypeScript and Docker planned) |
 | [SecID-Client-SDK](https://github.com/CloudSecurityAlliance/SecID-Client-SDK) | Client libraries (Python, TypeScript, Go) |
 
 ## Repository Structure
@@ -30,18 +30,18 @@ SecID-Service/
 │   ├── mcp.ts              # MCP tool implementations
 │   ├── parser.ts           # SecID string parsing (registry-aware)
 │   ├── resolver.ts         # Resolution logic (pattern tree traversal)
-│   ├── registry.ts         # Compiled-in fallback registry (build-registry.ts output)
+│   ├── registry.ts         # Test-only registry snapshot (build-registry.ts output, gitignored)
 │   ├── kv-registry.ts      # KV reads for registry data
 │   ├── kv-resolve.ts       # KV-backed resolution path
 │   ├── observability.ts    # Error recording to KV (UUIDv7 keys)
 │   └── types.ts            # Shared types
 ├── scripts/
-│   ├── build-registry.ts        # Compiles SecID JSON → src/registry.ts (fallback)
+│   ├── build-registry.ts        # Compiles SecID JSON → src/registry.ts (test snapshot)
 │   ├── upload-registry-kv.ts    # Uploads registry to KV (--sync deletes orphans)
 │   └── setup-dns.sh
 ├── test/                   # vitest tests (auto-generated fixtures from registry)
 ├── website/                # Astro static site (served from same Worker)
-├── wrangler.jsonc          # Cloudflare Worker config (account, KV, routes)
+├── wrangler.toml           # Cloudflare Worker config (account, KV, routes)
 └── .github/workflows/
     └── registry-kv-upload.yml  # Triggered by repository_dispatch from SecID
 ```
@@ -65,7 +65,7 @@ npx tsx scripts/upload-registry-kv.ts --sync /path/to/SecID            # apply
 - **Account:** `f3898058ae0b4c20c692bbfa5b9b44b0` (Kseifried@cloudsecurityalliance.org's Account)
 - **Worker route:** `secid.cloudsecurityalliance.org/*` (zone `cloudsecurityalliance.org`)
 - **KV namespaces:**
-  - `secid_REGISTRY` (id `cfbc271787614516a39fa43d9ca4f95a`) — registry data, ~1,150 keys
+  - `secid_REGISTRY` (id `cfbc271787614516a39fa43d9ca4f95a`) — registry data: one key per namespace plus the type, global and meta index keys
   - `secid_OBSERVABILITY` (id `c5cbc52b9a724433b3043efdf31857f4`) — error logging
 
 ## Deploy Chain
@@ -73,8 +73,8 @@ npx tsx scripts/upload-registry-kv.ts --sync /path/to/SecID            # apply
 The full deploy chain is described in [SecID/CLAUDE.md](https://github.com/CloudSecurityAlliance/SecID/blob/main/CLAUDE.md#cicd). Briefly:
 
 1. Registry change pushed to `CloudSecurityAlliance/SecID`
-2. SecID's notify workflow fires `repository_dispatch` (event-type `registry-updated`) using PAT `SECID_TO_SERVICE_DISPATCH`
-3. This repo's `registry-kv-upload.yml` workflow runs:
+2. SecID's `registry-ci.yml` runs the registry validation gates; only if they all pass does its `notify-service` job fire `repository_dispatch` (event-type `registry-updated`, `client_payload.ref` = the validated commit SHA) using PAT `SECID_TO_SERVICE_DISPATCH`
+3. This repo's `registry-kv-upload.yml` workflow runs against that SecID commit:
    - Builds + tests
    - Runs `upload-registry-kv.ts --sync` using `SECID_SERVICE_DEPLOY` Cloudflare token
    - Deploys Worker
@@ -101,7 +101,7 @@ CI runs `--sync` by default, so KV stays continuously synchronized.
 
 ## Key Design Decisions
 
-- **Worker is stateless.** All state lives in KV. The Worker's compiled-in registry (`src/registry.ts`) is a fallback only; production reads from KV via `kv-registry.ts`.
+- **Worker is stateless.** All state lives in KV; production reads it via `kv-registry.ts`. `src/registry.ts` is **not** a fallback and is not used at runtime: it is a gitignored snapshot that `build-registry.ts` generates so tests (and the seeded test KV) run against a known registry. A stale local snapshot makes tests disagree with production — rebuild it from the SecID checkout you care about.
 - **Registry is the source of truth.** This repo doesn't store registry data — it loads from the SecID repo at build time and uploads to KV at deploy time.
 - **Tests gate the deploy.** If `npx vitest run` fails, the upload + deploy steps don't run. Test failures from registry-derived fixtures often indicate registry misconfiguration in the SecID repo, not bugs here.
 - **Stateless MCP must 405 GET/DELETE** on the Streamable HTTP transport — without this, SSE clients hang forever. (Known community issue across SDKs.)

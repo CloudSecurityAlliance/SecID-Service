@@ -3,7 +3,7 @@
  *
  * Reads all JSON registry files and writes:
  *   - secid:{type}/{namespace}  — raw namespace JSON (×121)
- *   - secid:{type}              — TypeIndex with child_index (×7)
+ *   - secid:{type}              — TypeIndex with child_index (one per type)
  *   - secid:*                   — GlobalIndex: combined child_index across all types (×1)
  *   - secid:registry            — complete compiled Registry (×1)
  *   - secid:meta                — version/counts metadata (×1)
