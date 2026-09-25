@@ -335,9 +335,13 @@ describe("buildUrl URL validation (F-01-01)", () => {
     // RHSA IDs contain a colon — it must NOT be mangled (regression guard).
     expect(buildUrl("https://access.redhat.com/errata/{id}", { id: "RHSA-2024:1234" }))
       .toBe("https://access.redhat.com/errata/RHSA-2024:1234");
-    // Extra path/query content on the same host is allowed (not an open redirect).
+    // '/' and ':' stay literal (DOIs, owner/repo); '?' would end the path
+    // early and start a query the template never declared, so it is encoded.
     expect(buildUrl("https://host.example/{id}", { id: "a/b:c?d=e" }))
-      .toBe("https://host.example/a/b:c?d=e");
+      .toBe("https://host.example/a/b:c%3Fd=e");
+    // '&' is literal in a path (CCM A&A-01).
+    expect(buildUrl("https://host.example/controls/{id}", { id: "A&A-01" }))
+      .toBe("https://host.example/controls/A&A-01");
   });
 
   it("drops a result when substitution changes the host (authority injection)", () => {
@@ -345,7 +349,36 @@ describe("buildUrl URL validation (F-01-01)", () => {
     expect(buildUrl("https://{id}/path", { id: "evil.com" })).toBeNull();
   });
 
-  it("passes a non-absolute template through unchanged", () => {
-    expect(buildUrl("/relative/{id}", { id: "x y" })).toBe("/relative/x y");
+  it("refuses a non-absolute or non-http(s) template", () => {
+    expect(buildUrl("/relative/{id}", { id: "x" })).toBeNull();
+    expect(buildUrl("{id}", { id: "https://evil.example/" })).toBeNull();
+    expect(buildUrl("javascript:alert({id})", { id: "1" })).toBeNull();
+  });
+
+  it("encodes query separators so a value cannot add or split parameters", () => {
+    expect(buildUrl("https://host.example/search?q={id}&lang=en", { id: "A&A-01+x" }))
+      .toBe("https://host.example/search?q=A%26A-01%2Bx&lang=en");
+    expect(buildUrl("https://host.example/search?q={id}", { id: "x#frag" }))
+      .toBe("https://host.example/search?q=x%23frag");
+  });
+
+  it("refuses dot-segments that would climb out of the template's path", () => {
+    expect(buildUrl("https://host.example/advisories/{id}", { id: "../admin" })).toBeNull();
+    expect(buildUrl("https://host.example/advisories/{id}", { id: "a/../../admin" })).toBeNull();
+    expect(buildUrl("https://host.example/advisories/{id}", { id: ".." })).toBeNull();
+    // Percent-encoded dot-segments are defused by encoding '%'.
+    expect(buildUrl("https://host.example/advisories/{id}", { id: "%2e%2e/admin" }))
+      .toBe("https://host.example/advisories/%252e%252e/admin");
+    // Backslash is a path separator to the WHATWG parser.
+    expect(buildUrl("https://host.example/advisories/{id}", { id: "a\\b" }))
+      .toBe("https://host.example/advisories/a%5Cb");
+    // Dots inside a segment are ordinary identifier characters.
+    expect(buildUrl("https://host.example/{id}", { id: "T1059.003" }))
+      .toBe("https://host.example/T1059.003");
+  });
+
+  it("does not re-expand placeholders that appear inside a substituted value", () => {
+    expect(buildUrl("https://host.example/{id}/{year}", { id: "{year}", year: "2024" }))
+      .toBe("https://host.example/{year}/2024");
   });
 });

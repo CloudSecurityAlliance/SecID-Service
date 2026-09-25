@@ -1,5 +1,5 @@
 import type { Context } from "hono";
-import { resolveFromKV } from "./kv-resolve";
+import { resolveQuery } from "./kv-resolve";
 import { RegistryContext } from "./kv-registry";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
@@ -120,18 +120,10 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
     });
   }
 
-  // Decode percent-encoded characters (browser/client may have encoded # as %23, etc.)
-  let decoded: string;
-  try {
-    decoded = decodeURIComponent(rawQuery);
-  } catch {
-    return c.json({
-      secid_query: rawQuery,
-      status: "error",
-      results: [],
-      message: "Malformed percent-encoding in query parameter.",
-    });
-  }
+  // Hono has already percent-decoded the query string once, so this is the
+  // SecID as the client meant it. Do not decode it again here: resolveQuery
+  // tries it as-is and falls back to one more decode only if that fails.
+  const decoded = rawQuery;
   if (decoded.length > MAX_SECID_QUERY_CHARS) {
     return c.json({
       secid_query: decoded.slice(0, MAX_SECID_QUERY_CHARS),
@@ -151,7 +143,7 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
         message: "Registry KV not configured.",
       });
     }
-    const result = await resolveFromKV(kv, decoded, {
+    const result = await resolveQuery(kv, decoded, {
       demand: c.env.secid_DEMAND,
       channel: "rest",
     });

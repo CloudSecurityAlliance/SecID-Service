@@ -1,7 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
-import { resolveFromKV, type MissCapture } from "./kv-resolve";
+import { resolveQuery, type MissCapture } from "./kv-resolve";
 import { recordFeedback, FeedbackRateLimitedError } from "./feedback";
 import { RegistryContext } from "./kv-registry";
 import { SECID_TYPES } from "./types";
@@ -634,7 +634,7 @@ function createMcpServer(
         };
       }
       try {
-        const result = await resolveFromKV(registryKv, secid, capture);
+        const result = await resolveQuery(registryKv, secid, capture);
         return {
           content: [{ type: "text", text: JSON.stringify(sanitizeResponseForMcp(result), null, 2) }],
         };
@@ -685,7 +685,7 @@ function createMcpServer(
       }
       const secid = `secid:${type}/${identifier}`;
       try {
-        const result = await resolveFromKV(registryKv, secid, capture);
+        const result = await resolveQuery(registryKv, secid, capture);
         return {
           content: [{ type: "text", text: JSON.stringify(sanitizeResponseForMcp(result), null, 2) }],
         };
@@ -734,10 +734,12 @@ function createMcpServer(
         };
       }
       try {
-        // Strip subpath (#...) from input for describe — return source-level info
-        const hashIdx = secid.indexOf("#");
+        // Strip subpath (#...) from input for describe — return source-level
+        // info. Also cut at an encoded %23, or the decode fallback in
+        // resolveQuery would turn it back into an item resolution.
+        const hashIdx = secid.search(/#|%23/i);
         const describeInput = hashIdx !== -1 ? secid.slice(0, hashIdx) : secid;
-        const result = await resolveFromKV(registryKv, describeInput, capture);
+        const result = await resolveQuery(registryKv, describeInput, capture);
 
         // Bare-type query (secid:<type>): augment response with declared subtypes
         // from the type-registry. Lets MCP clients discover what subtypes exist
