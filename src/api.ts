@@ -25,12 +25,24 @@ const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value 
  * segment is unambiguous. Only used for listing filters; resolution qualifiers
  * are parsed properly by the resolver.
  */
+/** Thrown for a qualifier value that is not valid percent-encoding. */
+class MalformedQualifierError extends Error {}
+
 function qualifierFromSecID(secid: string, key: string): string | null {
   const q = secid.split("?").slice(1).join("?");
   if (!q) return null;
   for (const pair of q.split("&")) {
     const [k, v] = pair.split("=");
-    if (k === key && v) return decodeURIComponent(v);
+    if (k === key && v) {
+      // decodeURIComponent throws URIError on input like "%ZZ". That is a bad
+      // request, not an internal failure: it must not surface as a 500 or be
+      // written to the observability KV as an error record.
+      try {
+        return decodeURIComponent(v);
+      } catch {
+        throw new MalformedQualifierError(`Malformed percent-encoding in qualifier "${key}".`);
+      }
+    }
   }
   return null;
 }
@@ -202,6 +214,12 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
     }
     return c.json(result);
   } catch (err) {
+    if (err instanceof MalformedQualifierError) {
+      return c.json(
+        { secid_query: decoded, status: "error", results: [], message: err.message },
+        400,
+      );
+    }
     const entry = buildErrorEntry("api.resolve", decoded, err, c.req.raw);
     const errorId = await recordError(c.env.secid_OBSERVABILITY, entry);
 

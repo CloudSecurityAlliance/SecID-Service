@@ -95,7 +95,10 @@ CI runs `--sync` by default, so KV stays continuously synchronized.
 ## Operational Limits
 
 - **`secid` input:** 1024 characters (REST + MCP). Longer inputs return `status="error"`.
-- **MCP HTTP body:** 64 KiB (`413` if exceeded).
+- **MCP HTTP body:** 64 KiB, counted on the bytes received (so a chunked body without `Content-Length` is bounded too); `413` if exceeded.
+- **MCP JSON-RPC batch:** at most 10 messages, and a batch may not contain `submit_feedback` (`400`).
+- **`submit_feedback` input:** `secid` ≤ 1024 chars, `message` 1–4000 chars, `suggested_urls` ≤ 10 entries of ≤ 2048 chars. Writes are capped at 20 per minute per isolate (`src/write-budget.ts`); past that the tool returns `status: "rate_limited"`.
+- **`feedback:<uuid>` records** are `schema_version: 2`: all caller text sits under `untrusted`, with a `handling` note telling triage to treat it as data, never instructions.
 - **Cloudflare KV value:** 25 MiB per key (script enforces before upload).
 - **Test fixtures:** `test/resolver.test.ts` auto-generates one test per `data.examples` entry in registry JSON. Adding examples to the registry adds tests automatically.
 

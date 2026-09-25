@@ -118,7 +118,9 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
   // Build progressively longer candidates
   for (let i = 1; i <= segments.length; i++) {
     const candidate = segments.slice(0, i).join("/");
-    if (candidate in typeRegistry) {
+    // Own-property check: `in` walks the prototype chain, so "constructor" or
+    // "__proto__" would otherwise match as a registered namespace.
+    if (Object.hasOwn(typeRegistry, candidate)) {
       longestMatch = candidate;
       matchLength = i;
     }

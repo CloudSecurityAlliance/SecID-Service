@@ -66,7 +66,9 @@ export function resolve(
     return typeScopedSearch(query, parsed, typeRegistry);
   }
 
-  const ns = typeRegistry[parsed.namespace!];
+  const ns = Object.hasOwn(typeRegistry, parsed.namespace!)
+    ? typeRegistry[parsed.namespace!]
+    : undefined;
 
   // Namespace not in registry — a namespace-level miss. The KV-backed flow
   // records this in secid_FEEDBACK and MCP clients can request it via the
