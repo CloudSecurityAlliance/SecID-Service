@@ -152,8 +152,8 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       });
     }
     const result = await resolveFromKV(kv, decoded, {
-      feedbackKv: c.env.secid_FEEDBACK,
-      waitUntil: (p) => c.executionCtx.waitUntil(p),
+      demand: c.env.secid_DEMAND,
+      channel: "rest",
     });
 
     // Optional listing filters. Two response shapes need handling:

@@ -1023,7 +1023,8 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
 
   const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw, {
     feedbackKv: c.env.secid_FEEDBACK,
-    waitUntil: (p) => c.executionCtx.waitUntil(p),
+    demand: c.env.secid_DEMAND,
+    channel: "mcp",
   });
 
   try {

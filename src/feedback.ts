@@ -1,17 +1,11 @@
 // ── Feedback (secid_FEEDBACK KV) ──
-// Two key families, both AI-to-AI by design (intake is MCP-only — no web forms):
+// Active submissions via the submit_feedback MCP tool (intake is MCP-only by
+// design — no web forms), one row per submission under feedback:<uuid>.
 //
-//   miss:<type>/<namespace>   Passive capture. When a well-formed query names a
-//                             type+namespace that isn't registered, we aggregate
-//                             a demand signal. Keyed by namespace (not per
-//                             request) so KV writes are bounded by *distinct*
-//                             missed namespaces — a bot can't blow the quota,
-//                             and the stored shape is already "namespace X,
-//                             requested N times".
-//
-//   feedback:<uuid>           Active submission via the submit_feedback MCP tool.
-//                             One row per submission (free-text message), so
-//                             these are individual events, not aggregated.
+// Passive namespace-miss capture no longer lives here: it is an event log, so
+// it goes to Workers Analytics Engine (src/demand.ts). Keys under the old
+// `miss:<type>/<namespace>` prefix may still exist in this namespace from
+// before that change; nothing writes or reads them now.
 //
 // submit_feedback is reachable without authentication and stores caller text,
 // so it is bounded: input lengths are capped by the tool schema (mcp.ts), the
@@ -20,9 +14,7 @@
 // budget is spent the tool refuses visibly rather than dropping silently.
 //
 // Inspect with:
-//   wrangler kv key list --binding secid_FEEDBACK --prefix miss:
-//   wrangler kv key list --binding secid_FEEDBACK --prefix feedback:
-//   wrangler kv key get  --binding secid_FEEDBACK "miss:entity/example.com"
+//   wrangler kv key list --remote --binding secid_FEEDBACK --prefix feedback:
 
 import { uuidv7 } from "./observability";
 import { WriteBudget } from "./write-budget";
@@ -75,71 +67,11 @@ export class FeedbackRateLimitedError extends Error {
   }
 }
 
-export interface MissRecord {
-  type: string;
-  namespace: string;
-  count: number;
-  first_seen: string;
-  last_seen: string;
-  sample_query: string;
-}
-
-/**
- * Record a namespace-level miss, aggregating by (type, namespace).
- *
- * Read-modify-write: KV is eventually consistent, so under high concurrency
- * the count may slightly undercount — acceptable for a demand signal. Best
- * called via ctx.waitUntil() so it never blocks the response.
- */
-export async function recordMiss(
-  kv: KVNamespace | undefined,
-  type: string,
-  namespace: string,
-  query: string
-): Promise<void> {
-  const key = `miss:${type}/${namespace}`;
-  const now = new Date().toISOString();
-
-  if (!kv) {
-    console.log("[secid-feedback] miss (no KV):", key);
-    return;
-  }
-
-  try {
-    const existingRaw = await kv.get(key);
-    let record: MissRecord;
-    if (existingRaw) {
-      const prev = JSON.parse(existingRaw) as MissRecord;
-      record = {
-        type,
-        namespace,
-        count: (prev.count ?? 0) + 1,
-        first_seen: prev.first_seen ?? now,
-        last_seen: now,
-        sample_query: query,
-      };
-    } else {
-      record = {
-        type,
-        namespace,
-        count: 1,
-        first_seen: now,
-        last_seen: now,
-        sample_query: query,
-      };
-    }
-    await kv.put(key, JSON.stringify(record));
-  } catch (err) {
-    // Never let feedback capture affect the response path.
-    console.error("[secid-feedback] KV write failed:", err);
-  }
-}
-
 /**
  * Record active feedback submitted by an MCP client (the submit_feedback tool).
  * One row per submission under feedback:<uuid>. Returns the record so the tool
- * can echo the id. Unlike recordMiss this is awaited and its outcome surfaced —
- * the agent asked us to record something, so a refusal must be visible.
+ * can echo the id. It is awaited and its outcome surfaced: the agent asked us
+ * to record something, so a refusal must be visible.
  *
  * Throws FeedbackRateLimitedError when this isolate's budget is exhausted.
  * Length limits are enforced by the tool's input schema (mcp.ts).

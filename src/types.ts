@@ -243,6 +243,8 @@ export interface AppBindings {
   secid_OBSERVABILITY?: KVNamespace;
   secid_REGISTRY?: KVNamespace;
   secid_FEEDBACK?: KVNamespace;
+  /** Namespace-miss demand signal (Workers Analytics Engine, src/demand.ts). */
+  secid_DEMAND?: AnalyticsEngineDataset;
 }
 
 export type AppEnv = {
