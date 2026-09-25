@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { z } from "zod";
 import { resolveFromKV, type MissCapture } from "./kv-resolve";
-import { recordFeedback } from "./feedback";
+import { recordFeedback, FeedbackRateLimitedError } from "./feedback";
 import { RegistryContext } from "./kv-registry";
 import { SECID_TYPES } from "./types";
 import type { AppEnv } from "./types";
@@ -13,6 +13,16 @@ import { sanitizeResponseForMcp } from "./sanitize";
 
 const MAX_SECID_QUERY_CHARS = 1024;
 const MAX_MCP_BODY_BYTES = 64 * 1024; // 64 KB
+// JSON-RPC batching was dropped from MCP in the 2025-06-18 revision but the SDK
+// still accepts arrays. A small cap keeps one request from fanning out into
+// dozens of tool calls (each a KV read path, and for feedback a KV write).
+const MAX_MCP_BATCH = 10;
+
+// submit_feedback input caps. Generous for a real report, small enough that a
+// feedback record stays far below KV's value limit and cheap to triage.
+const MAX_FEEDBACK_MESSAGE_CHARS = 4000;
+const MAX_FEEDBACK_URLS = 10;
+const MAX_FEEDBACK_URL_CHARS = 2048;
 
 // One-line summary of all 10 types — used to keep prompt descriptions in sync
 // with the canonical type-registry without manual duplication. Format:
@@ -858,14 +868,18 @@ function createMcpServer(
         ),
       secid: z
         .string()
+        .max(MAX_SECID_QUERY_CHARS)
         .describe(
           "The SecID this feedback is about — e.g. 'secid:entity/example.com' or 'secid:advisory/vendor.com/alerts'. Use the closest SecID you have, even if it didn't resolve."
         ),
       message: z
         .string()
+        .min(1)
+        .max(MAX_FEEDBACK_MESSAGE_CHARS)
         .describe("What is missing, wrong, or suggested — with any supporting detail or evidence."),
       suggested_urls: z
-        .array(z.string())
+        .array(z.string().max(MAX_FEEDBACK_URL_CHARS))
+        .max(MAX_FEEDBACK_URLS)
         .optional()
         .describe("Optional supporting URLs (homepage, advisory feed, docs, the correct link)."),
     },
@@ -884,12 +898,23 @@ function createMcpServer(
               status: "received",
               feedback_id: rec.id,
               category: rec.category,
-              secid: rec.secid,
+              secid: rec.untrusted.secid,
               message: "Thanks — recorded for triage. SecID feedback is AI/MCP-only; this is the right channel.",
             }, null, 2),
           }],
         };
       } catch (err) {
+        if (err instanceof FeedbackRateLimitedError) {
+          // Expected under load — not an internal error, so no error record
+          // (which would itself be another KV write).
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({ status: "rate_limited", message: err.message }),
+            }],
+            isError: true,
+          };
+        }
         const entry = buildErrorEntry("mcp.tool.submit_feedback", secid, err, req);
         const errorId = await recordError(kv, entry);
         return {
@@ -963,20 +988,37 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
     );
   }
 
-  const contentLength = c.req.header("content-length");
-  const parsedLength = contentLength ? Number.parseInt(contentLength, 10) : NaN;
-  if (Number.isFinite(parsedLength) && parsedLength > MAX_MCP_BODY_BYTES) {
-    return c.json(
-      {
-        jsonrpc: "2.0",
-        error: {
-          code: -32600,
-          message: `Request body exceeds ${MAX_MCP_BODY_BYTES} bytes.`,
-        },
-        id: null,
-      },
-      413,
+  // Enforce the body cap on the bytes actually received. Content-Length is only
+  // a hint: a chunked request carries none, so checking the header alone lets
+  // an arbitrarily large body through to JSON parsing.
+  const body = await readBodyWithLimit(c.req.raw, MAX_MCP_BODY_BYTES);
+  if (body === null) {
+    return jsonRpcError(c, 413, -32600, `Request body exceeds ${MAX_MCP_BODY_BYTES} bytes.`);
+  }
+
+  // Parse once here so the batch policy can be applied before any tool runs;
+  // the transport receives the parsed value and does not read the stream again.
+  let parsedBody: unknown;
+  try {
+    parsedBody = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return jsonRpcError(c, 400, -32700, "Parse error: Invalid JSON");
+  }
+
+  if (Array.isArray(parsedBody)) {
+    if (parsedBody.length > MAX_MCP_BATCH) {
+      return jsonRpcError(c, 400, -32600, `Batch exceeds ${MAX_MCP_BATCH} messages.`);
+    }
+    // Each submit_feedback is a KV write; a batch would multiply one request
+    // into many writes and sidestep per-request accounting.
+    const hasFeedback = parsedBody.some(
+      (m) =>
+        (m as { method?: unknown })?.method === "tools/call" &&
+        (m as { params?: { name?: unknown } })?.params?.name === "submit_feedback",
     );
+    if (hasFeedback) {
+      return jsonRpcError(c, 400, -32600, "submit_feedback cannot be sent in a JSON-RPC batch; send it as a single request.");
+    }
   }
 
   const server = createMcpServer(c.env.secid_OBSERVABILITY, c.env.secid_REGISTRY, c.req.raw, {
@@ -991,7 +1033,7 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
     });
 
     await server.connect(transport);
-    const response = await transport.handleRequest(c.req.raw);
+    const response = await transport.handleRequest(c.req.raw, { parsedBody });
     return response;
   } catch (err) {
     const entry = buildErrorEntry("mcp.transport", c.req.url, err, c.req.raw);
@@ -1006,4 +1048,45 @@ export async function handleMCP(c: Context<AppEnv>): Promise<Response> {
       500,
     );
   }
+}
+
+function jsonRpcError(
+  c: Context<AppEnv>,
+  status: 400 | 413,
+  code: number,
+  message: string,
+): Response {
+  return c.json({ jsonrpc: "2.0", error: { code, message }, id: null }, status);
+}
+
+/**
+ * Read a request body, giving up as soon as it exceeds `limit` bytes.
+ * Returns null when over the limit. Checks Content-Length first as a cheap
+ * early reject, then counts the streamed bytes, which is the real bound.
+ */
+export async function readBodyWithLimit(req: Request, limit: number): Promise<Uint8Array | null> {
+  const declared = Number.parseInt(req.headers.get("content-length") ?? "", 10);
+  if (Number.isFinite(declared) && declared > limit) return null;
+  if (!req.body) return new Uint8Array(0);
+
+  const reader = req.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > limit) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
