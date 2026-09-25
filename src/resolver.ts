@@ -187,6 +187,23 @@ function resolveWithName(
     );
   }
 
+  if (parsed.version) {
+    // A version alias (ADR-015) is answered as its canonical version, so the
+    // result SecIDs name the release the data actually comes from.
+    const alias = matchVersionAlias(matchedNode, parsed.version);
+    if (alias) {
+      const canonical = { ...parsed, version: alias.canonical };
+      if (alias.onMatch === "redirect") {
+        return versionRedirect(query, parsed.version, canonical, matchedNode);
+      }
+      parsed = canonical;
+    }
+
+    // A version the source does not have must not come back as "found".
+    const versionOutcome = resolveVersionMismatch(query, parsed, matchedNode, ns, typeRegistry);
+    if (versionOutcome) return versionOutcome;
+  }
+
   // No subpath → return source-level detail (Level 3)
   if (!parsed.subpath) {
     return describeSource(query, parsed, matchedNode);
@@ -194,6 +211,213 @@ function resolveWithName(
 
   // Has subpath → resolve against children (Level 4)
   return resolveSubpath(query, parsed, matchedNode, ns);
+}
+
+// ── Version Checking ──
+
+interface VersionAliasMatch {
+  canonical: string;
+  onMatch: "resolve" | "redirect";
+}
+
+/**
+ * If `version` is an alias of another version of this source, return the
+ * canonical version and how the alias is answered. Null for a canonical or
+ * unknown version.
+ *
+ * `versions_available[].aliases` is authoritative (it carries `on_match`).
+ * The tree is consulted as well: a version node matched through a pattern
+ * other than its `patterns[0]` literal is an alias of that literal, answered
+ * as `resolve` — the registry validator keeps the two in step, so this only
+ * matters for data that has drifted.
+ */
+function matchVersionAlias(node: MatchNode, version: string): VersionAliasMatch | null {
+  for (const entry of node.data.versions_available ?? []) {
+    const alias = entry.aliases?.find((a) => a.label === version);
+    if (alias && entry.version !== version) {
+      return { canonical: entry.version, onMatch: alias.on_match === "redirect" ? "redirect" : "resolve" };
+    }
+  }
+  if (node.data.version_required && node.children?.length) {
+    const child = node.children.find((c) => matchesAnyPattern(c.patterns, version));
+    const canonical = child ? patternLiteral(child.patterns[0] ?? "") : null;
+    if (canonical && canonical !== version) return { canonical, onMatch: "resolve" };
+  }
+  return null;
+}
+
+/**
+ * The literal string an anchored pattern matches, or null when it is not a
+ * plain literal (ADR-015: a version node's patterns[0] is the canonical form).
+ * `(?i)^1\.1\.1$` → "1.1.1".
+ */
+function patternLiteral(pat: string): string | null {
+  const body = pat.replace(/^\(\?i\)/, "").replace(/^\^/, "").replace(/\$$/, "");
+  let out = "";
+  for (let i = 0; i < body.length; i++) {
+    const ch = body[i];
+    if (ch === "\\") {
+      const next = body[i + 1];
+      if (next === undefined || /[A-Za-z0-9]/.test(next)) return null; // \d, \w, ...
+      out += next;
+      i++;
+    } else if (".*+?()[]{}|^$".includes(ch)) {
+      return null;
+    } else {
+      out += ch;
+    }
+  }
+  return out || null;
+}
+
+/** An alias whose on_match is "redirect": no data, the canonical SecID in the message. */
+function versionRedirect(
+  query: string,
+  asked: string,
+  canonical: ParsedSecID,
+  node: MatchNode
+): ResolveResponse {
+  const base = `secid:${canonical.type}/${canonical.namespace}/${extractNameSlug(node)}@${canonical.version}`;
+  const target = canonical.subpath ? `${base}#${canonical.subpath}` : base;
+  return response(
+    query,
+    "corrected",
+    [],
+    `Version "${asked}" is an alias of ${canonical.version}. Query ${target} instead.`
+  );
+}
+
+const ISSUES_URL = "https://github.com/CloudSecurityAlliance/SecID/issues";
+
+/** "1.1.1 (current; aliases 1.1, v1.1), 1.1.0 (superseded, 2026-06-22)" */
+function describeVersions(node: MatchNode): string {
+  const entries = node.data.versions_available ?? [];
+  if (entries.length === 0) return "none listed";
+  return entries
+    .map((e) => {
+      const facts: string[] = [];
+      const status = [e.status, e.release_date].filter(Boolean).join(", ");
+      if (status) facts.push(status);
+      const labels = (e.aliases ?? []).map((a) => a.label);
+      if (labels.length) facts.push(`aliases ${labels.join(", ")}`);
+      return facts.length ? `${e.version} (${facts.join("; ")})` : e.version;
+    })
+    .join(", ");
+}
+
+/**
+ * An item asked for under a version the source does not have (ADR-015).
+ *
+ * not_found, never another version's item: IDs can designate a different
+ * item in another release (54 AICM control IDs changed meaning in 1.1.0), so
+ * a substitute answer would be confidently wrong. The message lists the known
+ * versions and where to report a missing release.
+ */
+function versionNotFound(query: string, parsed: ParsedSecID, node: MatchNode): ResolveResponse {
+  const slug = extractNameSlug(node);
+  return response(
+    query,
+    "not_found",
+    [],
+    `Version "${parsed.version}" is not a known version of ${slug}. Known versions: ${describeVersions(node)}. ` +
+      `To list versions, describe the source without a version (secid:${parsed.type}/${parsed.namespace}/${slug}). ` +
+      `Report a genuinely missing release via the submit_feedback tool (include a source URL) or ${ISSUES_URL}`
+  );
+}
+
+/**
+ * Handle an @version the matched source cannot honour. Returns null when the
+ * version is fine and normal resolution should proceed.
+ *
+ * Follows the four outcomes in SecID docs/reference/VERSIONING.md:
+ *
+ *  - source has versions (version nodes or versions_available), version not
+ *    among them, with a subpath → not_found with the known versions and where
+ *    to report a missing release (ADR-015). Another version's item is never
+ *    substituted: IDs can change meaning between releases.
+ *  - the same without a subpath → related: a discovery question, answered
+ *    with the source and its versions.
+ *  - version differs from a listed one only by case → corrected, using the
+ *    listed spelling.
+ *  - source lists no versions → corrected: the version cannot be checked, so
+ *    it is dropped rather than echoed back as if it had been validated.
+ *
+ * `corrected` responses carry no message (API-RESPONSE-FORMAT.md).
+ *
+ * Result SecIDs never carry a version that was not honoured, so a client that
+ * copies them does not propagate the bad version.
+ */
+function resolveVersionMismatch(
+  query: string,
+  parsed: ParsedSecID,
+  node: MatchNode,
+  ns: RegistryNamespace,
+  typeRegistry: Record<string, RegistryNamespace>
+): ResolveResponse | null {
+  const version = parsed.version!;
+  const listed = (node.data.versions_available ?? []).map((v) => v.version);
+
+  if (node.data.version_required) {
+    if (!node.children?.length) return null; // nothing to check against
+    const known = node.children.some((c) => matchesAnyPattern(c.patterns, version));
+    if (known) return null;
+    return parsed.subpath ? versionNotFound(query, parsed, node) : versionRequiredMiss(query, parsed, node);
+  }
+
+  if (listed.includes(version)) return null;
+
+  const withVersion = (v: string | null) =>
+    resolveWithName(query, { ...parsed, version: v }, ns, typeRegistry);
+
+  // A `corrected` response carries no message (API-RESPONSE-FORMAT.md: the
+  // results speak for themselves). The correction is visible in the result
+  // SecIDs, which carry the source's spelling, or no version at all.
+  const caseMatch = listed.find((v) => v.toLowerCase() === version.toLowerCase());
+  if (caseMatch) {
+    return asCorrected(withVersion(caseMatch));
+  }
+
+  if (listed.length > 0 && parsed.subpath) return versionNotFound(query, parsed, node);
+
+  const r = withVersion(null);
+  if (listed.length > 0) {
+    if (r.status === "found" || r.status === "corrected") r.status = "related";
+    const note = `Version "${version}" not found for ${extractNameSlug(node)}. Known versions: ${describeVersions(node)}. Showing the source without a version.`;
+    r.message = r.message ? `${note} ${r.message}` : note;
+    return r;
+  }
+  // No versions listed: the version cannot be checked, so it is dropped.
+  return asCorrected(r);
+}
+
+/** Mark a successful resolution as corrected, dropping any message. */
+function asCorrected(r: ResolveResponse): ResolveResponse {
+  if (r.status !== "found" && r.status !== "corrected") return r;
+  const { message: _message, ...rest } = r;
+  return { ...rest, status: "corrected" };
+}
+
+/** Version-required source queried with a version it does not have. */
+function versionRequiredMiss(
+  query: string,
+  parsed: ParsedSecID,
+  node: MatchNode
+): ResolveResponse {
+  const nameSlug = extractNameSlug(node);
+  return response(
+    query,
+    "related",
+    [{
+      secid: `secid:${parsed.type}/${parsed.namespace}/${nameSlug}`,
+      data: {
+        official_name: node.data.official_name ?? node.description,
+        version_required: true,
+        versions_available: node.data.versions_available ?? [],
+        version_disambiguation: node.data.version_disambiguation ?? null,
+      },
+    }],
+    `Version "${parsed.version}" is not a known version of ${nameSlug}. Known versions: ${describeVersions(node)}.`
+  );
 }
 
 // ── Level 3: Describe Source ──
@@ -312,13 +536,7 @@ function resolveVersioned(
   );
 
   if (!versionChild) {
-    const versions = (node.data.versions_available ?? []).map((v) => v.version);
-    return response(
-      query,
-      "not_found",
-      [],
-      `Version "${parsed.version}" not found. Available: ${versions.join(", ") || "none listed"}`
-    );
+    return parsed.subpath ? versionNotFound(query, parsed, node) : versionRequiredMiss(query, parsed, node);
   }
 
   // No subpath — describe version
@@ -426,7 +644,11 @@ function matchChildrenAndResolve(
       results.push(res);
     } else if (child.data.lookup_table) {
       // Lookup table: try direct key match
-      const entry = child.data.lookup_table[subpath];
+      // Own-property check: a subpath like "constructor" must not resolve to
+      // an Object.prototype member.
+      const entry = Object.hasOwn(child.data.lookup_table, subpath)
+        ? child.data.lookup_table[subpath]
+        : undefined;
       if (entry) {
         const lookupUrl = typeof entry === "string" ? entry : entry.url;
         const res: ResolutionResult = { secid, weight: child.weight, url: lookupUrl };
@@ -598,25 +820,68 @@ function parseTemplateUrl(template: string): URL | null {
   }
 }
 
+/** Which part of the URL a placeholder sits in, decided from the template. */
+type UrlPart = "path" | "query" | "fragment";
+
+// Characters a substituted value must not contribute raw, per URL part. The
+// sets are deliberately small: identifiers legitimately carry ':' (RHSA-2024:1234),
+// '/' (DOIs, owner/repo) and '&' in a path (CCM A&A-01), and the registry's
+// expected URLs keep them literal. What is encoded is exactly what would change
+// the URL's structure: ending the path early (? #), smuggling a dot-segment
+// through percent-encoding (% → %2e%2e), backslash (a path separator to the
+// WHATWG parser), whitespace/controls, and in a query the separators that
+// would split or add parameters.
+const UNSAFE_IN: Record<UrlPart, RegExp> = {
+  path: /[?#%\\\s\x00-\x1f\x7f]/g,
+  query: /[#&+%\\\s\x00-\x1f\x7f]/g,
+  fragment: /[#%\\\s\x00-\x1f\x7f]/g,
+};
+
+function encodeForPart(value: string, part: UrlPart): string {
+  return value.replace(UNSAFE_IN[part], (ch) =>
+    [...new TextEncoder().encode(ch)]
+      .map((b) => "%" + b.toString(16).toUpperCase().padStart(2, "0"))
+      .join(""),
+  );
+}
+
+/** A '.' or '..' path segment inside a value would climb out of the template's path. */
+const DOT_SEGMENT = /(^|\/)\.{1,2}(\/|$)/;
+
 export function buildUrl(
   template: string,
   variables: Record<string, string>
 ): string | null {
+  // Only absolute http(s) templates are emitted. A relative or scheme-less
+  // template has no authority to hold substitution to, so it cannot be checked
+  // for an open redirect; no registry entry uses one.
   const templateUrl = parseTemplateUrl(template);
+  if (!templateUrl || !ALLOWED_URL_SCHEMES.has(templateUrl.protocol)) return null;
 
-  let url = template;
-  for (const [key, value] of Object.entries(variables)) {
-    url = url.replaceAll(`{${key}}`, value);
-  }
+  const queryAt = template.indexOf("?");
+  const fragmentAt = template.indexOf("#");
+  const partAt = (offset: number): UrlPart => {
+    if (fragmentAt !== -1 && offset > fragmentAt) return "fragment";
+    if (queryAt !== -1 && offset > queryAt && (fragmentAt === -1 || queryAt < fragmentAt)) return "query";
+    return "path";
+  };
 
-  // Non-absolute template (no literal scheme/host to enforce): emit as-is.
-  if (!templateUrl) return url;
+  // Single left-to-right pass over the template, so a substituted value is
+  // never itself scanned for placeholders.
+  let unsafe = false;
+  const url = template.replace(/\{([^{}]*)\}/g, (whole, key: string, offset: number) => {
+    if (!Object.hasOwn(variables, key)) return whole;
+    const value = variables[key];
+    const part = partAt(offset);
+    if (part === "path" && DOT_SEGMENT.test(value)) unsafe = true;
+    return encodeForPart(value, part);
+  });
+  if (unsafe) return null;
 
   // Re-parse the substituted result and require that substitution did not
   // change the scheme or authority of the template — that is the open-redirect
-  // primitive. Path/query content on the template's own host is left intact
-  // (identifiers legitimately contain ':' and other reserved chars). Fail
-  // closed on a scheme/host/userinfo change or an unparseable result.
+  // primitive. Fail closed on a scheme/host/userinfo change or an unparseable
+  // result.
   let resultUrl: URL;
   try {
     resultUrl = new URL(url);
@@ -624,7 +889,6 @@ export function buildUrl(
     return null;
   }
   if (resultUrl.protocol !== templateUrl.protocol) return null;
-  if (!ALLOWED_URL_SCHEMES.has(resultUrl.protocol)) return null;
   if (
     resultUrl.host !== templateUrl.host ||
     resultUrl.username !== templateUrl.username ||
@@ -664,7 +928,7 @@ function namespaceScopedSearch(
       } else {
         results.push({
           secid,
-          data: { description: child.description, weight: child.weight },
+          data: { description: child.description, weight: child.weight, note: child.data.note ?? null },
         } as RegistryResult);
       }
     }
@@ -762,9 +1026,11 @@ function typeScopedSearch(
           addFormatMetadata(res, child.data);
           results.push(res);
         } else {
+          // Same shape as matchChildrenAndResolve: the note often carries the
+          // only guidance for a URL-less item (where to look it up instead).
           results.push({
             secid,
-            data: { description: child.description, weight: child.weight },
+            data: { description: child.description, weight: child.weight, note: child.data.note ?? null },
           } as RegistryResult);
         }
       }
@@ -905,12 +1171,29 @@ function matchesAnyPattern(patterns: string[], input: string): boolean {
   return false;
 }
 
-/** Convert a pattern string to a RegExp, handling (?i) inline flag → JS 'i' flag. */
-function toRegExp(pat: string): RegExp {
-  if (pat.startsWith("(?i)")) {
-    return new RegExp(pat.slice(4), "i");
+// Compiled patterns, keyed by source string. Patterns come only from the
+// registry (never from the query), so the cache is bounded by registry size;
+// a large namespace (disa.mil) would otherwise recompile thousands of patterns
+// on every query. The flags never include g/y, so a shared RegExp's .test() is
+// stateless. Invalid patterns are cached as null so they are not retried.
+const regexCache = new Map<string, RegExp | null>();
+
+/**
+ * Convert a pattern string to a RegExp, handling (?i) inline flag → JS 'i'
+ * flag. Throws on an invalid pattern, like `new RegExp` — callers skip those.
+ */
+export function toRegExp(pat: string): RegExp {
+  let re = regexCache.get(pat);
+  if (re === undefined) {
+    try {
+      re = pat.startsWith("(?i)") ? new RegExp(pat.slice(4), "i") : new RegExp(pat);
+    } catch {
+      re = null;
+    }
+    regexCache.set(pat, re);
   }
-  return new RegExp(pat);
+  if (re === null) throw new SyntaxError(`Invalid registry pattern: ${pat}`);
+  return re;
 }
 
 function extractNameSlug(node: MatchNode): string {

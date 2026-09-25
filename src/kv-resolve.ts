@@ -1,7 +1,7 @@
 import { RegistryContext } from "./kv-registry";
 import { extractSecIDType, parseSecID } from "./parser";
-import { resolve, isOpenPattern, MAX_REGEX_INPUT_CHARS } from "./resolver";
-import { recordDemandMiss, type DemandChannel } from "./demand";
+import { resolve, isOpenPattern, toRegExp, MAX_REGEX_INPUT_CHARS } from "./resolver";
+import { recordDemandMiss, type DemandChannel, type DemandMiss } from "./demand";
 import {
   isResolutionResult,
   SECID_TYPES,
@@ -38,6 +38,11 @@ export interface MissCapture {
   demand?: AnalyticsEngineDataset;
   channel?: DemandChannel;
   feedbackKv?: KVNamespace;
+  /**
+   * Internal to resolveQuery: when set, misses are collected here instead of
+   * written, so that only the attempt whose result is returned is recorded.
+   */
+  pendingMisses?: DemandMiss[];
 }
 
 export async function resolveFromKV(
@@ -84,9 +89,10 @@ export async function resolveFromKV(
     //       typed an invalid SecID; don't fish for matches. Fall through to
     //       the resolver's invalid-type error path.
     const hasSecidPrefix = /^secid:/i.test(input.trimStart());
-    if (!hasSecidPrefix) {
+    if (!hasSecidPrefix && input.trim()) {
       const bareResult = await searchBareIdentifier(ctx, input);
       if (bareResult) return bareResult;
+      return bareSearchNotFound(input);
     }
 
     // Nothing matched (or invalid explicit SecID) — let the resolver produce the error message.
@@ -175,17 +181,98 @@ export async function resolveFromKV(
       (n) => n.namespace.toLowerCase() === lower
     );
     if (capture?.demand && !registeredCaseVariant) {
-      recordDemandMiss(capture.demand, {
+      const miss = {
         type,
         namespace: parsed.namespace!,
         channel: capture.channel ?? "rest",
         status: result.status,
-      });
+      } as const;
+      if (capture.pendingMisses) capture.pendingMisses.push(miss);
+      else recordDemandMiss(capture.demand, miss);
     }
   }
 
   return result;
 }
+
+/**
+ * A bare term (no "secid:" prefix, no recognised type) that matched nothing.
+ *
+ * The input was a search, not a malformed SecID, so "Invalid type" is the
+ * wrong answer: it blames the user for a grammar they never attempted. Say
+ * what was searched and how to go further. If the term has a slash, the first
+ * segment may have been meant as a type, so list the valid ones too.
+ */
+function bareSearchNotFound(input: string): ResolveResponse {
+  const term = input.trim();
+  let message =
+    `No matches for "${term}". A bare term is searched across every type as an identifier ` +
+    `(e.g. CVE-2021-44228), a source name (e.g. cwe) and a namespace name (e.g. fedramp). ` +
+    `Try a scoped query such as secid:advisory/${term}, or "secid:" to list the types.`;
+  const slash = term.indexOf("/");
+  if (slash > 0) {
+    message += ` If "${term.slice(0, slash)}" was meant as a type, valid types are: ${SECID_TYPES.join(", ")}.`;
+  }
+  return { secid_query: input, status: "not_found", results: [], message };
+}
+
+/**
+ * Resolve a query exactly as given, then — only if that did not resolve —
+ * once more percent-decoded.
+ *
+ * SPEC §8: resolvers try the input as-is first, then percent-decoded. The
+ * as-is form is authoritative because SecIDs are written unencoded (A&A-01,
+ * not A%26A-01) and an identifier may contain a literal '%'. Decoding first,
+ * as the REST handler used to (on top of the framework's own query-string
+ * decoding), turned "%41" into "A" and rejected any literal '%' as malformed.
+ * The fallback still rescues clients that encode the SecID twice or send
+ * '#' as %23 through a transport that does not decode it (MCP arguments).
+ *
+ * `secid_query` always echoes what the client sent.
+ */
+export async function resolveQuery(
+  kv: KVNamespace,
+  input: string,
+  capture?: MissCapture
+): Promise<ResolveResponse> {
+  // Each attempt collects its demand misses; only the attempt whose result is
+  // returned is recorded, so one query never writes two data points.
+  const asIsMisses: DemandMiss[] = [];
+  const asIs = await resolveFromKV(kv, input, withPending(capture, asIsMisses));
+  const settle = (result: ResolveResponse, misses: DemandMiss[]) => {
+    if (capture?.demand) for (const m of misses) recordDemandMiss(capture.demand, m);
+    return result;
+  };
+  if (asIs.status === "found" || asIs.status === "corrected") return settle(asIs, asIsMisses);
+  if (!/%[0-9A-Fa-f]{2}/.test(input)) return settle(asIs, asIsMisses);
+
+  let decoded: string;
+  try {
+    decoded = decodeURIComponent(input);
+  } catch {
+    // Not valid percent-encoding, so a literal '%' — as-is stands.
+    return settle(asIs, asIsMisses);
+  }
+  if (decoded === input) return settle(asIs, asIsMisses);
+
+  const altMisses: DemandMiss[] = [];
+  const alt = await resolveFromKV(kv, decoded, withPending(capture, altMisses));
+  return STATUS_RANK[alt.status] > STATUS_RANK[asIs.status]
+    ? settle({ ...alt, secid_query: input }, altMisses)
+    : settle(asIs, asIsMisses);
+}
+
+function withPending(capture: MissCapture | undefined, pendingMisses: DemandMiss[]): MissCapture | undefined {
+  return capture?.demand ? { ...capture, pendingMisses } : capture;
+}
+
+const STATUS_RANK: Record<ResolveResponse["status"], number> = {
+  error: 0,
+  not_found: 1,
+  related: 2,
+  corrected: 3,
+  found: 4,
+};
 
 /**
  * Build a minimal registry with empty namespace placeholders.
@@ -333,10 +420,7 @@ function findMatchingNamespaces(
   for (const entry of childIndex) {
     for (const pat of entry.patterns) {
       try {
-        const re = pat.startsWith("(?i)")
-          ? new RegExp(pat.slice(4), "i")
-          : new RegExp(pat);
-        if (re.test(identifier)) {
+        if (toRegExp(pat).test(identifier)) {
           matched.add(entry.namespace);
           break;
         }
@@ -395,10 +479,7 @@ async function searchBareIdentifier(
     if (entry.open ?? isOpenPattern(entry.patterns)) continue;
     for (const pat of entry.patterns) {
       try {
-        const re = pat.startsWith("(?i)")
-          ? new RegExp(pat.slice(4), "i")
-          : new RegExp(pat);
-        if (re.test(trimmed)) {
+        if (toRegExp(pat).test(trimmed)) {
           // entry.level may be absent on older deploys — treat as "child" for compat
           if (entry.level === "source") {
             sourceMatches.push({
