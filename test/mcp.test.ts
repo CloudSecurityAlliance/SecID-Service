@@ -181,10 +181,12 @@ describe("MCP tool handlers", () => {
 // Verify the /mcp endpoint responds correctly to MCP protocol messages.
 
 describe("MCP HTTP endpoint", () => {
-  it("rejects GET without proper headers", async () => {
-    const res = await SELF.fetch(MCP_URL, { method: "GET" });
-    // GET without Accept header returns 406 (Not Acceptable)
-    expect([400, 405, 406]).toContain(res.status);
+  it("answers GET without an Accept header with 405 and Allow", async () => {
+    // Was "[400, 405, 406]" — loose enough to pass a redirect regression's
+    // neighbours. The contract says exactly 405; see test/method-gate.test.ts.
+    const res = await SELF.fetch(MCP_URL, { method: "GET", redirect: "manual" });
+    expect(res.status).toBe(405);
+    expect(res.headers.get("allow")).toBe("POST, OPTIONS");
   });
 
   it("accepts POST with JSON-RPC initialize", async () => {

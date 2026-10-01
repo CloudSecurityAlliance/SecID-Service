@@ -2,12 +2,25 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { handleResolve, handleRegistryDownload, handleTypes } from "./api";
 import { handleMCP } from "./mcp";
+import { mcpEndpointMethodGate } from "./method-gate";
 import type { AppEnv } from "./types";
 import { buildErrorEntry, recordError } from "./observability";
 
 const app = new Hono<AppEnv>();
 
-app.use("*", cors());
+// CORS: open to browser-hosted MCP clients and API callers. SecID is public
+// and unauthenticated, so there is no ambient credential to protect; never add
+// credentials: true. Methods are listed explicitly — the bare cors() default
+// advertised PUT, DELETE and PATCH, which nothing here serves.
+app.use(
+  "*",
+  cors({
+    origin: "*",
+    allowMethods: ["GET", "HEAD", "POST", "OPTIONS"],
+    allowHeaders: ["Content-Type", "Accept", "MCP-Protocol-Version", "Mcp-Method", "Mcp-Name"],
+    maxAge: 86400,
+  }),
+);
 
 // Global error handler — catches anything that escapes individual route handlers
 app.onError(async (err, c) => {
@@ -32,14 +45,16 @@ app.get("/api/v1/types", handleTypes);
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-// MCP Streamable HTTP endpoint (POST only — stateless, no SSE streaming)
+// MCP Streamable HTTP endpoint — stateless, POST only. Every other method on
+// /mcp and /mcp/ is answered by the method gate (src/method-gate.ts): 405 with
+// Allow for MCP clients and for every registered method, a 302 to the setup
+// section of the homepage for a browser navigation, 501 for unregistered
+// methods. Registered before the POST route so the table covers /mcp/ too.
+const methodGate = mcpEndpointMethodGate((c) => new URL("/#mcp-setup", c.req.url).toString());
+app.use("/mcp", methodGate);
+app.use("/mcp/", methodGate);
 app.post("/mcp", handleMCP);
-app.get("/mcp", (c) =>
-  c.json({ jsonrpc: "2.0", error: { code: -32000, message: "SSE streaming not supported. Use POST for JSON-RPC requests." }, id: null }, 405)
-);
-app.delete("/mcp", (c) =>
-  c.json({ jsonrpc: "2.0", error: { code: -32000, message: "Session management not supported. This is a stateless server." }, id: null }, 405)
-);
+app.post("/mcp/", handleMCP);
 
 // Shareable resolve URL — redirects to homepage with ?secid= for client-side resolution
 app.get("/resolve", (c) => {
