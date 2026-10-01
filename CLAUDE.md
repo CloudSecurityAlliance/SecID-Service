@@ -9,7 +9,7 @@ SecID-Service is the **production resolver** for the [SecID ecosystem](https://g
 The Worker reads from Cloudflare KV (binding `secid_REGISTRY`) and serves resolution requests via two transports:
 
 - **REST API:** `GET /api/v1/resolve?secid=...` (response envelope: `{secid_query, status, results[], message?}`)
-- **MCP Server:** `https://secid.cloudsecurityalliance.org/mcp` — three tools: `resolve`, `lookup`, `describe`
+- **MCP Server:** `https://secid.cloudsecurityalliance.org/mcp` — four tools: `resolve`, `lookup`, `describe`, `submit_feedback`. Stateless, POST only; every other method is answered by `src/method-gate.ts` (README §"MCP endpoint behaviour", ADR-015)
 
 ## Multi-Repo Architecture
 
@@ -28,6 +28,7 @@ SecID-Service/
 │   ├── index.ts            # Worker entry — routes /api/v1/*, /mcp, /
 │   ├── api.ts              # REST API handlers
 │   ├── mcp.ts              # MCP tool implementations
+│   ├── method-gate.ts      # What /mcp answers for every non-POST method (ADR-015)
 │   ├── parser.ts           # SecID string parsing (registry-aware)
 │   ├── resolver.ts         # Resolution logic (pattern tree traversal)
 │   ├── registry.ts         # Test-only registry snapshot (build-registry.ts output, gitignored)
@@ -44,10 +45,12 @@ SecID-Service/
 │   ├── update-tlds.ts           # Regenerates src/tlds.ts from IANA
 │   └── setup-dns.sh
 ├── test/                   # vitest tests (auto-generated fixtures from registry)
+├── e2e/                    # Playwright against production; also the post-deploy gate
 ├── website/                # Astro static site (served from same Worker)
 ├── wrangler.toml           # Cloudflare Worker config (account, KV, routes)
 └── .github/workflows/
-    └── registry-kv-upload.yml  # Triggered by repository_dispatch from SecID
+    ├── ci.yml                  # PR gate: typecheck, website build, unit tests (never deploys)
+    └── registry-kv-upload.yml  # Deploy: push to main, repository_dispatch from SecID, manual
 ```
 
 ## Development Commands
@@ -55,9 +58,10 @@ SecID-Service/
 ```bash
 npm install
 npm run dev              # Local dev server
-npm run test             # Run tests
+npm run test             # Unit/integration tests (vitest, inside workerd)
+npm run test:e2e         # Playwright against production (SITE_URL to override)
 npm run build:registry   # Compile registry.ts from SecID repo
-npm run deploy           # Deploy to Cloudflare (requires CLOUDFLARE_API_TOKEN)
+npm run deploy           # Break-glass deploy (builds website first). Normal path: merge to main
 
 # Manual KV sync (audit + apply)
 npx tsx scripts/upload-registry-kv.ts --sync --dry-run /path/to/SecID  # see drift
@@ -81,9 +85,15 @@ The full deploy chain is described in [SecID/CLAUDE.md](https://github.com/Cloud
 1. Registry change pushed to `CloudSecurityAlliance/SecID`
 2. SecID's `registry-ci.yml` runs the registry validation gates; only if they all pass does its `notify-service` job fire `repository_dispatch` (event-type `registry-updated`, `client_payload.ref` = the validated commit SHA) using PAT `SECID_TO_SERVICE_DISPATCH`
 3. This repo's `registry-kv-upload.yml` workflow runs against that SecID commit:
-   - Builds + tests
+   - Builds + unit tests (a failure stops the run before any upload)
    - Runs `upload-registry-kv.ts --sync` using `SECID_SERVICE_DEPLOY` Cloudflare token
    - Deploys Worker
+   - **Verifies production**: Playwright suite against the live site, MCP endpoint included, minus
+     `@third-party` tests. A failure here means the new version IS live — the job summary carries
+     the `wrangler rollback` command
+
+A push to `main` runs the same workflow against SecID `main`, so **merging a PR deploys**. Cloudflare
+Workers Builds is not deploying (every deployment matches one workflow run; README §Deployment).
 
 The single GitHub Secret on this repo is `SECID_SERVICE_DEPLOY` (Cloudflare API token: Workers Scripts:Write + KV:Write + zone-scoped Routes:Write).
 
@@ -112,8 +122,8 @@ CI runs `--sync` by default, so KV stays continuously synchronized.
 
 - **Worker is stateless.** All state lives in KV; production reads it via `kv-registry.ts`. `src/registry.ts` is **not** a fallback and is not used at runtime: it is a gitignored snapshot that `build-registry.ts` generates so tests (and the seeded test KV) run against a known registry. A stale local snapshot makes tests disagree with production — rebuild it from the SecID checkout you care about.
 - **Registry is the source of truth.** This repo doesn't store registry data — it loads from the SecID repo at build time and uploads to KV at deploy time.
-- **Tests gate the deploy.** If `npx vitest run` fails, the upload + deploy steps don't run. Test failures from registry-derived fixtures often indicate registry misconfiguration in the SecID repo, not bugs here.
-- **Stateless MCP must 405 GET/DELETE** on the Streamable HTTP transport — without this, SSE clients hang forever. (Known community issue across SDKs.)
+- **Tests gate the deploy, and verify it afterwards.** If `npx vitest run` fails, the upload + deploy steps don't run; after deploy, the e2e suite must pass against production or the run fails. Test failures from registry-derived fixtures often indicate registry misconfiguration in the SecID repo, not bugs here.
+- **`/mcp` answers every HTTP method explicitly** (ADR-015): 405 + `Allow` for MCP-client GET/HEAD and every registered method not served, a 302 to `/#mcp-setup` only for a positively identified browser, 501 for unregistered methods. Never redirect an MCP client or hold a stream open: either makes SDK clients reconnect once a second. Same table as CSA-MCP-Core's `src/mcp/method-gate.ts` — change both together.
 
 ## Common Operations
 

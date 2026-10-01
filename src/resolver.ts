@@ -188,7 +188,7 @@ function resolveWithName(
   }
 
   if (parsed.version) {
-    // A version alias (ADR-015) is answered as its canonical version, so the
+    // A version alias (SecID spec ADR-015) is answered as its canonical version, so the
     // result SecIDs name the release the data actually comes from.
     const alias = matchVersionAlias(matchedNode, parsed.version);
     if (alias) {
@@ -248,7 +248,7 @@ function matchVersionAlias(node: MatchNode, version: string): VersionAliasMatch 
 
 /**
  * The literal string an anchored pattern matches, or null when it is not a
- * plain literal (ADR-015: a version node's patterns[0] is the canonical form).
+ * plain literal (SecID spec ADR-015: a version node's patterns[0] is the canonical form).
  * `(?i)^1\.1\.1$` → "1.1.1".
  */
 function patternLiteral(pat: string): string | null {
@@ -306,7 +306,7 @@ function describeVersions(node: MatchNode): string {
 }
 
 /**
- * An item asked for under a version the source does not have (ADR-015).
+ * An item asked for under a version the source does not have (SecID spec ADR-015).
  *
  * not_found, never another version's item: IDs can designate a different
  * item in another release (54 AICM control IDs changed meaning in 1.1.0), so
@@ -333,7 +333,7 @@ function versionNotFound(query: string, parsed: ParsedSecID, node: MatchNode): R
  *
  *  - source has versions (version nodes or versions_available), version not
  *    among them, with a subpath → not_found with the known versions and where
- *    to report a missing release (ADR-015). Another version's item is never
+ *    to report a missing release (SecID spec ADR-015). Another version's item is never
  *    substituted: IDs can change meaning between releases.
  *  - the same without a subpath → related: a discovery question, answered
  *    with the source and its versions.

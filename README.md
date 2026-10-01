@@ -49,7 +49,27 @@ Response:
 }
 ```
 
-No authentication. CORS enabled.
+No authentication. CORS is open (`Access-Control-Allow-Origin: *`) for `GET`, `HEAD`, `POST` and
+`OPTIONS`, never with credentials — there is no ambient credential to protect.
+
+## MCP endpoint behaviour
+
+`https://secid.cloudsecurityalliance.org/mcp` (and `/mcp/`) is a **stateless** Streamable HTTP
+endpoint: every MCP message is a `POST`. Everything else is answered explicitly, by one middleware
+([`src/method-gate.ts`](src/method-gate.ts), [ADR-015](DECISIONS.md#adr-015-mcp-endpoint-answers-every-http-method-explicitly)):
+
+| Request | Answer |
+|---|---|
+| `POST` | JSON-RPC (the MCP SDK's handling) |
+| `GET` / `HEAD` from an MCP client | `405`, `Allow: POST, OPTIONS` — no server-push stream on a stateless server |
+| `GET` / `HEAD` from a browser | `302` to the [setup instructions](https://secid.cloudsecurityalliance.org/#mcp-setup) |
+| `DELETE`, `PUT`, `PATCH`, `QUERY`, `TRACE`, `CONNECT` | `405`, `Allow: POST, OPTIONS` |
+| an unregistered method | `501` |
+
+A browser is identified positively (`Sec-Fetch-Mode: navigate`, or `Accept: text/html`) and only
+after ruling out every MCP-client signal (`text/event-stream` in `Accept`, `MCP-Protocol-Version`,
+`Mcp-Session-Id`). Getting this wrong is not cosmetic: an MCP client handed a redirect instead of a
+`405` reconnects once a second for its whole session.
 
 ## Operational Limits
 
@@ -92,20 +112,46 @@ This is forward-looking — no code change today, just signal that the repo's ro
 npm install
 npm install --prefix website   # the website is a separate Astro project
 npm run dev                    # Local dev server
-npm run test                   # Run tests
+npm run test                   # Unit/integration tests (Vitest, inside workerd)
+npm run test:e2e               # Playwright against production (SITE_URL to override)
 npm run build:registry         # Recompile registry from SecID repo
 npm run build:website          # Rebuild the static site into website/dist
 ```
 
 ## Deployment
 
-**Pushing to `main` deploys to production.** Cloudflare Workers Builds watches the
-repository and deploys on push — typically within about two minutes of a merge.
-That configuration lives in the Cloudflare dashboard, not in this repo, so it is
-not visible in `.github/workflows/`. Confirm a deploy landed with
-`npx wrangler deployments list`, or by checking the commit SHA in the site footer.
+**Merging to `main` deploys to production**, through
+[`.github/workflows/registry-kv-upload.yml`](.github/workflows/registry-kv-upload.yml). The same
+workflow runs on `repository_dispatch` from the SecID spec repo when the registry changes, and on
+manual `workflow_dispatch`. Every run, in order:
 
-There is currently no test gate in front of that deploy — see issue #28.
+1. **Unit tests** (`npx vitest run`) against a registry snapshot built from the SecID revision
+   being deployed — a red suite stops the run before anything is uploaded.
+2. **KV sync** of the registry (`upload-registry-kv.ts --sync`).
+3. **`wrangler deploy`** of the Worker and the website.
+4. **Post-deploy verification**: the Playwright suite against production — the website, plus the
+   MCP endpoint (a real MCP client, the method table above, CORS). Tests tagged `@third-party`
+   (cve.org, cwe.mitre.org, …) are excluded so an outage elsewhere cannot fail a deploy.
+
+Pull requests are gated separately by [`ci.yml`](.github/workflows/ci.yml) (typecheck, website
+build, unit tests). It never deploys.
+
+**If post-deploy verification fails, the new version is already live.** The job fails and its
+summary says so. Roll back with:
+
+```bash
+npx wrangler rollback --message "post-deploy verification failed"
+```
+
+**Watch and confirm a deploy:** `gh run list --workflow=registry-kv-upload.yml --limit 3`, then
+`npx wrangler deployments list` — each deployment should match one workflow run, about two minutes
+after it starts. The site footer shows the deployed commit SHA.
+
+> **Correction (2026-10-01):** this section previously said Cloudflare Workers Builds deployed on
+> push, with no test gate (#28). Since at least 2026-09-25 every production deployment corresponds
+> one-to-one with a run of the workflow above, with no additional deployments, so Workers Builds is
+> not deploying. The Cloudflare dashboard (Workers & Pages → `secid-service` → Settings → Build)
+> is the place to confirm no Git connection remains.
 
 ### Deploying by hand (break-glass)
 
@@ -119,6 +165,12 @@ and then deploys, in that order, and the order matters: `wrangler.toml` sets
 `wrangler deploy` publishes whatever happens to be on your disk — which, on a
 checkout that has not built the site recently, silently replaces the live website
 with a stale build. Prefer merging to `main`.
+
+A hand deploy skips the post-deploy verification, so run it yourself afterwards:
+
+```bash
+npx playwright test --grep-invert @third-party
+```
 
 ## Related Repositories
 

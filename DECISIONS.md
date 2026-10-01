@@ -161,6 +161,13 @@ Sequential log of decisions for SecID-Service.
 - **Vitest + jsdom** — Can't test real browser interactions, API calls, downloads
 - **Local dev server testing** — `wrangler dev` doesn't fully replicate Workers Assets + KV bindings
 
+**Update (2026-10-01):** the suite is now also the **post-deploy gate** — `registry-kv-upload.yml`
+runs it against production after every `wrangler deploy` and fails the run if it breaks. Until
+then it ran only by hand, and two explorer tests had been failing since the registry grew from 7 to
+10 types without anyone noticing; their expected count now comes from `/api/v1/types`. It now
+covers the MCP endpoint too (`e2e/mcp.spec.ts`). Tests that depend on third-party sites are tagged
+`@third-party` and excluded from the gate, so another site's outage cannot fail a SecID deploy.
+
 ---
 
 ## ADR-009: Accept MCP SDK bundle size, skip zod locale stripping
@@ -318,3 +325,55 @@ done
 ```
 
 **When to update:** During deploys, or when someone notices it's significantly stale (50+ difference). Exact counts are available via the API and the registry download.
+
+---
+
+## ADR-015: MCP endpoint answers every HTTP method explicitly
+
+> Numbering note: this is SecID-Service's ADR-015. Comments in `src/resolver.ts` and
+> `src/types.ts` citing "SecID spec ADR-015" mean the version-aliases decision in the
+> [SecID spec repo](https://github.com/CloudSecurityAlliance/SecID/blob/main/DECISIONS.md).
+
+**Date:** 2026-09-30
+**Status:** Accepted
+**Decision method:** Collaborative — after an incident on a sibling server
+
+**Goal:** `/mcp` gives every request a correct, explicit answer, so no client misreads the endpoint
+and no browser visitor hits a bare JSON error.
+
+**Context:** SecID has answered `GET` and `DELETE` on `/mcp` with 405 since 2026-03-05, when a GET
+on the stateless transport was found hanging. On 2026-09-30 a sibling CSA MCP server (csa-mcp) was
+found redirecting `GET /mcp` to an HTML page: the TypeScript SDK client follows the redirect, reads
+the HTML as an empty SSE stream, and reconnects once a second for the life of the session. A fleet
+contract was written from that incident. Measured against it, SecID still returned 404 for `PUT`,
+`PATCH` and `QUERY`, sent no `Allow` header on its 405s, and its bare `cors()` advertised `PUT`,
+`DELETE` and `PATCH` in preflights.
+
+**Decision:** one middleware, `src/method-gate.ts`, on exactly `/mcp` and `/mcp/`:
+- `POST` passes to the MCP handler; `OPTIONS` is answered by CORS first.
+- `GET`/`HEAD` from a **positively identified browser** → 302 to `/#mcp-setup`. MCP-client signals
+  are checked first (`text/event-stream` in `Accept` — which the MCP spec requires on a client's
+  GET — then `MCP-Protocol-Version` / `Mcp-Session-Id`), then `Sec-Fetch-Mode: navigate`, then
+  `Accept: text/html`.
+- Every other `GET`/`HEAD`, and `DELETE`, `PUT`, `PATCH`, `QUERY`, `TRACE`, `CONNECT` → 405 with
+  `Allow: POST, OPTIONS` and a JSON-RPC error naming the setup URL. Unregistered methods → 501
+  (RFC 9110 §9.1).
+- `Vary: Accept, Sec-Fetch-Mode` and `Cache-Control: no-store` on every answer.
+- CORS lists `GET, HEAD, POST, OPTIONS` explicitly, never credentials.
+
+**Rationale:** the costs are asymmetric. A browser wrongly given a 405 sees an error page once; an
+MCP client wrongly given a redirect loops for its whole session — so browsers must be identified
+positively and everything else treated as a client. 405 is the answer under MCP 2025-06-18,
+2025-11-25 and 2026-07-28 alike; `Allow` on a 405 is an RFC 9110 MUST.
+
+**Rejected alternatives:**
+- **Keep GET/DELETE-only handling** — correct for the case that hurts, but leaves 404s, no `Allow`,
+  and a preflight that lies; "mostly right" is how the sibling server shipped a loop.
+- **Import the gate from CSA-MCP-Core** — unwarranted here, not wrong: Core is private and this
+  repo is public. A local copy carries a header saying it mirrors Core's, and both run the same
+  contract table; the fleet check is what catches drift.
+- **Redirect every GET to the homepage** — exactly the sibling's bug.
+
+**Affects:** `src/method-gate.ts`, `src/index.ts`, `test/method-gate.test.ts`, `e2e/mcp.spec.ts`,
+`website/src/pages/index.astro` (`id="mcp-setup"`). Shipped in #40, verified in production; the
+post-deploy gate (#41) re-verifies it on every deploy.

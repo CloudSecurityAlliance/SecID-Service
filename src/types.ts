@@ -106,7 +106,7 @@ export interface VersionInfo {
   release_date?: string | null;
   status?: string;
   note?: string;
-  /** Other labels for this release (ADR-015). Curated, never derived. */
+  /** Other labels for this release (SecID spec ADR-015). Curated, never derived. */
   aliases?: VersionAlias[];
 }
 
