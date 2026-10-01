@@ -122,6 +122,40 @@ jobs:
         run: npx tsx scripts/upload-registry-kv.ts --sync ./secid-spec
 
       - name: Deploy Worker
+        id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.SECID_SERVICE_DEPLOY }}
         run: npx wrangler deploy
+
+      # ── Post-deploy gate ──
+      # Until 2026-10-01 nothing checked the site after it shipped: the e2e
+      # suite ran only by hand, and had been failing on a stale type count for
+      # months without anyone noticing. This runs it against production on
+      # every deploy — the website, plus the MCP endpoint (real client, method
+      # table, CORS). @third-party tests (cve.org, cwe.mitre.org, ...) are
+      # excluded so an outage elsewhere cannot fail a SecID deploy; they still
+      # run in the full suite. Playwright's retries: 1 absorbs edge propagation.
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
+      - name: Verify the deployed site
+        env:
+          SITE_URL: https://secid.cloudsecurityalliance.org
+        run: |
+          sleep 10
+          npx playwright test --grep-invert @third-party --reporter=line
+
+      - name: Post-deploy verification failed — the new version IS live
+        if: failure() && steps.deploy.outcome == 'success'
+        run: |
+          {
+            echo "## ⚠️ Deployed, but post-deploy verification failed"
+            echo
+            echo "The new Worker version is serving production. Check the failing tests above;"
+            echo "if production is broken, roll back to the previous version:"
+            echo
+            echo '```'
+            echo "npx wrangler rollback --message 'post-deploy verification failed'"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Deployed, but post-deploy verification failed. The new version is live — see the job summary for rollback."
