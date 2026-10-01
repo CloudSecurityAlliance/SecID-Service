@@ -3,7 +3,7 @@
 ## Project Structure & Module Organization
 - `src/`: Worker runtime code (API, MCP, parser, resolver, KV access).
 - `test/`: Vitest unit/integration tests.
-- `e2e/`: Playwright browser tests.
+- `e2e/`: Playwright tests against production — website and MCP endpoint; also the post-deploy gate.
 - `scripts/`: registry build/upload and operational scripts.
 - `website/`: Astro frontend bundled into Worker assets.
 - `wrangler.toml`: Worker/KV/routing configuration.
@@ -15,9 +15,9 @@ Run from repo root.
 - `npm run build:registry [path-to-secid-repo]`: compile registry JSON into `src/registry.ts`.
 - `npm run dev`: run local Worker with Wrangler.
 - `npm run test`: run Vitest suite (`test/**/*.test.ts`).
-- `npm run test:e2e`: run Playwright suite (uses `SITE_URL` or production default).
+- `npm run test:e2e`: run Playwright suite (uses `SITE_URL` or production default). The deploy workflow runs it after every deploy with `--grep-invert @third-party`.
 - `npm run build:website`: build Astro site for Worker static assets.
-- `npm run deploy`: deploy Worker.
+- `npm run deploy`: break-glass deploy (builds the website first). Normal path: merging to `main` deploys.
 
 ## Coding Style & Naming Conventions
 - TypeScript + ESM modules throughout; keep interfaces in `src/types.ts` coherent with API responses.
@@ -27,6 +27,8 @@ Run from repo root.
 ## Testing Guidelines
 - Add or update Vitest coverage for parser, resolver, API envelope, KV behavior, and MCP changes.
 - Add Playwright coverage for user-facing behavior when website UX or routing changes.
+- Tag e2e tests that depend on third-party sites with `@third-party`, so they stay out of the post-deploy gate.
+- Changing `/mcp` method handling (`src/method-gate.ts`) means updating both `test/method-gate.test.ts` and `e2e/mcp.spec.ts`, and the same table in CSA-MCP-Core.
 - When touching registry compilation/upload logic, run `npm run build:registry` and validate generated output.
 
 ## Commit & Pull Request Guidelines

@@ -18,7 +18,7 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Next review:** 2026-08-01
 - **Cadence:** request-driven (no schedule)
 - **Health check:** `curl https://secid.cloudsecurityalliance.org/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228` — should return JSON envelope with a URL
-- **Runbook:** Manual deploy via `npx wrangler deploy` (uses `CLOUDFLARE_API_TOKEN` env). Auto-deploy via `registry-kv-upload.yml` (see below)
+- **Runbook:** Normal deploy = merge to `main` (`registry-kv-upload.yml`: unit tests → KV sync → `wrangler deploy` → Playwright verification against production). Break-glass: `npm run deploy` (builds the website first), then `npx playwright test --grep-invert @third-party`. Roll back: `npx wrangler rollback --message "<why>"`
 - **Owner:** Kurt Seifried
 - **Notes:** Astro site is bundled into the same Worker via `[assets]` in `wrangler.toml`
 
@@ -72,6 +72,7 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Next review:** 2026-12-01
 - **Cadence:** event-driven (every push to `registry/**/*.json`)
 - **Health check:** `gh run list --workflow=registry-kv-upload.yml --limit 3 -R CloudSecurityAlliance/SecID-Service` — most recent run should be `success`
+- **Post-deploy failure means live:** a run that fails at "Verify the deployed site" has already deployed — its job summary says so and carries the rollback command. Every production deployment should match one workflow run (`npx wrangler deployments list`)
 - **Runbook:** See FRICTION-001 for past failure modes and workarounds. Local audit (no mutations): `npx tsx scripts/upload-registry-kv.ts --sync --dry-run /path/to/SecID` from this repo with a working `CLOUDFLARE_API_TOKEN`
 - **Owner:** Kurt Seifried
 
