@@ -1,18 +1,29 @@
 import { test, expect } from "@playwright/test";
 
+// The type grid shows one card per top-level type. Read the expected count
+// from the live API rather than hard-coding it: this assertion said 7 while
+// the registry grew to 10 (2026-05 to 2026-07) and nothing ran it to notice.
+async function expectedTypeCount(request: import("@playwright/test").APIRequestContext): Promise<number> {
+  const res = await request.get("/api/v1/types");
+  expect(res.ok()).toBe(true);
+  const body = (await res.json()) as { types: unknown[] };
+  expect(body.types.length).toBeGreaterThan(0);
+  return body.types.length;
+}
+
 test.describe("Registry Explorer", () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
   });
 
-  test("explore button opens type grid with 7 types", async ({ page }) => {
+  test("explore button opens type grid with one card per registry type", async ({ page, request }) => {
     await page.locator("#explore-btn").click();
     await expect(page.locator("#resolver-output")).toBeVisible();
 
     const grid = page.locator(".explorer-type-grid");
     await expect(grid).toBeVisible();
-    await expect(page.locator(".explorer-type-card")).toHaveCount(7);
+    await expect(page.locator(".explorer-type-card")).toHaveCount(await expectedTypeCount(request));
   });
 
   test("clicking a type card shows namespaces", async ({ page }) => {
@@ -55,7 +66,7 @@ test.describe("Registry Explorer", () => {
     }
   });
 
-  test("breadcrumb navigation goes back to type grid", async ({ page }) => {
+  test("breadcrumb navigation goes back to type grid", async ({ page, request }) => {
     await page.locator("#explore-btn").click();
     await expect(page.locator(".explorer-type-grid")).toBeVisible();
 
@@ -73,6 +84,6 @@ test.describe("Registry Explorer", () => {
 
     // Type grid should reappear
     await expect(page.locator(".explorer-type-grid")).toBeVisible();
-    await expect(page.locator(".explorer-type-card")).toHaveCount(7);
+    await expect(page.locator(".explorer-type-card")).toHaveCount(await expectedTypeCount(request));
   });
 });

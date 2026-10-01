@@ -1,6 +1,9 @@
 import { test, expect } from "@playwright/test";
 
-test.describe("External Links", () => {
+// Tagged @third-party: these fetch cve.org, cwe.mitre.org and similar. They
+// stay in the full suite but are excluded from the post-deploy gate, so a
+// third-party outage cannot fail a SecID deploy.
+test.describe("External Links", { tag: "@third-party" }, () => {
   test.beforeEach(async ({ page }) => {
     await page.goto("/");
     await page.waitForLoadState("networkidle");
