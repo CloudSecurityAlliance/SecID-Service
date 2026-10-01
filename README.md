@@ -147,6 +147,13 @@ npx wrangler rollback --message "post-deploy verification failed"
 `npx wrangler deployments list` — each deployment should match one workflow run, about two minutes
 after it starts. The site footer shows the deployed commit SHA.
 
+**Every version names its source.** The workflow tags each Worker version with the SecID-Service
+commit and stamps a message with that commit, the SecID registry commit, the trigger and the
+Actions run — `npx wrangler versions list` (or the dashboard's Versions list) shows them. Cloudflare
+still lists the author as "Unknown": that field is the API token's owner, and the deploy token is an
+account token. A break-glass `npm run deploy` stamps `break-glass by <git user>`, and `+dirty` if
+the working tree had uncommitted changes.
+
 > **Correction (2026-10-01):** this section previously said Cloudflare Workers Builds deployed on
 > push, with no test gate (#28). Since at least 2026-09-25 every production deployment corresponds
 > one-to-one with a run of the workflow above, with no additional deployments, so Workers Builds is

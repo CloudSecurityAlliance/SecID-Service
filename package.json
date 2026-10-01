@@ -7,7 +7,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "npm run build:website && wrangler deploy",
+    "deploy": "npm run build:website && wrangler deploy --tag \"$(git rev-parse --short=12 HEAD)\" --message \"SecID-Service $(git rev-parse --short=12 HEAD)$(git diff --quiet HEAD || echo +dirty) break-glass by $(git config user.name)\"",
     "build:registry": "tsx scripts/build-registry.ts",
     "upload:registry": "tsx scripts/upload-registry-kv.ts",
     "build:website": "GIT_COMMIT_SHA=$(git rev-parse --short=12 HEAD) && cd website && PUBLIC_COMMIT_SHA=$GIT_COMMIT_SHA npm run build",

@@ -121,11 +121,24 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.SECID_SERVICE_DEPLOY }}
         run: npx tsx scripts/upload-registry-kv.ts --sync ./secid-spec
 
+      # Stamp the version with where it came from. Without this, Cloudflare's
+      # version list says "Manually deployed — Wrangler by Unknown" with no
+      # message: it cannot say which commit is live. "Unknown" is the API
+      # token's owner — an account token has none — so identity goes in the
+      # message instead. Only trusted values (SHAs, event name, run id) are
+      # interpolated; never commit messages or branch names.
       - name: Deploy Worker
         id: deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.SECID_SERVICE_DEPLOY }}
-        run: npx wrangler deploy
+          SERVICE_SHA: ${{ github.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+          RUN_ID: ${{ github.run_id }}
+        run: |
+          SPEC_SHA=$(git -C secid-spec rev-parse HEAD)
+          npx wrangler deploy \
+            --tag "${SERVICE_SHA:0:12}" \
+            --message "SecID-Service ${SERVICE_SHA:0:12} + registry ${SPEC_SHA:0:12} (${EVENT_NAME}, run ${RUN_ID})"
 
       # ── Post-deploy gate ──
       # Until 2026-10-01 nothing checked the site after it shipped: the e2e
