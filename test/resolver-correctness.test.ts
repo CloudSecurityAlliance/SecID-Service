@@ -103,9 +103,12 @@ describe("percent-decoding: as-is first, decoded only as a fallback (L1)", () =>
   });
 
   it("resolves A&A-01 sent as %26 exactly once", async () => {
-    const body = await rest("secid:control/cloudsecurityalliance.org/ccm%23A%26A-01");
+    // Pinned to @4.0: CCM gains version nodes (SecID ADR-015, second amendment),
+    // after which an unversioned ccm#… subpath returns "related" and asks for a
+    // version. 4.0 resolves the same way before and after that registry change.
+    const body = await rest("secid:control/cloudsecurityalliance.org/ccm@4.0%23A%26A-01");
     expect(body.status).toBe("found");
-    expect(secids(body)[0]).toBe("secid:control/cloudsecurityalliance.org/ccm#A&A-01");
+    expect(secids(body)[0]).toBe("secid:control/cloudsecurityalliance.org/ccm@4.0#A&A-01");
   });
 
   it("still rescues a doubly-encoded '#'", async () => {
