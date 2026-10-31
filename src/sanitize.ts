@@ -50,26 +50,40 @@ function capString(s: string): string {
   return s.replace(CONTROL_RE, "").slice(0, MAX_FIELD_CHARS);
 }
 
-function sanitizeValue(v: unknown): unknown {
+/** Strip control chars and cap lengths without re-wrapping nested objects. */
+function capValue(v: unknown): unknown {
   if (typeof v === "string") return capString(v);
-  if (Array.isArray(v)) return v.slice(0, MAX_ARRAY_ITEMS).map(sanitizeValue);
+  if (Array.isArray(v)) return v.slice(0, MAX_ARRAY_ITEMS).map(capValue);
   if (v && typeof v === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, val] of Object.entries(v as Record<string, unknown>)) {
-      out[k] = sanitizeValue(val);
+      out[k] = capValue(val);
     }
     return out;
   }
   return v;
 }
 
-/** Split a result's `data` block: structural keys stay; contributor prose moves
+function sanitizeValue(v: unknown): unknown {
+  if (typeof v === "string") return capString(v);
+  if (Array.isArray(v)) return v.slice(0, MAX_ARRAY_ITEMS).map(sanitizeValue);
+  if (v && typeof v === "object") {
+    return sanitizeDict(v as Record<string, unknown>);
+  }
+  return v;
+}
+
+/** Split an object: structural keys stay (and recurse); contributor prose moves
  *  under a labeled `registry_text_untrusted` envelope. */
-function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
+function sanitizeDict(data: Record<string, unknown>): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   const untrusted: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(data)) {
-    (UNTRUSTED_TEXT_KEYS.has(k) ? untrusted : out)[k] = sanitizeValue(v);
+    if (UNTRUSTED_TEXT_KEYS.has(k)) {
+      untrusted[k] = capValue(v);
+    } else {
+      out[k] = sanitizeValue(v);
+    }
   }
   if (Object.keys(untrusted).length > 0) {
     untrusted._warning =
@@ -83,7 +97,7 @@ function sanitizeData(data: Record<string, unknown>): Record<string, unknown> {
  * Sanitize a resolve/lookup/describe response before it crosses the MCP
  * boundary. Shallow-copies (the REST/KV originals are untouched); control-strips
  * top-level `message` and each result's string fields; relocates each result's
- * `data` prose under `registry_text_untrusted`.
+ * and nested object's contributor prose under `registry_text_untrusted`.
  */
 export function sanitizeResponseForMcp(result: unknown): unknown {
   if (!result || typeof result !== "object") return result;
@@ -95,15 +109,7 @@ export function sanitizeResponseForMcp(result: unknown): unknown {
   if (Array.isArray(out.results)) {
     out.results = out.results.slice(0, MAX_ARRAY_ITEMS).map((entry) => {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
-      const e: Record<string, unknown> = { ...(entry as Record<string, unknown>) };
-      for (const [k, v] of Object.entries(e)) {
-        if (k === "data") continue; // handled below
-        if (typeof v === "string") e[k] = capString(v);
-      }
-      if (e.data && typeof e.data === "object" && !Array.isArray(e.data)) {
-        e.data = sanitizeData(e.data as Record<string, unknown>);
-      }
-      return e;
+      return sanitizeDict(entry as Record<string, unknown>);
     });
   }
 
