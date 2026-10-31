@@ -44,5 +44,5 @@ Preserve explicit limits across `src/index.ts`, `src/api.ts`, `src/mcp.ts`, `src
 ## 6. Testing and Post-Deploy Verification
 
 - **Unit/integration coverage (`test/`):** Require Vitest regression tests (`npm test`) for parser, resolver, sanitization, KV, or MCP changes.
-- **Release-train test guards:** When a source in `CloudSecurityAlliance/SecID` transitions to `version_required: true` or changes version lists, update assertions in `test/resolver.test.ts` / `test/website.spec.ts` here **first** before merging the `SecID` registry PR.
+- **Release-train test guards:** When a source in `CloudSecurityAlliance/SecID` transitions to `version_required: true` or changes version lists, update assertions in `test/resolver-correctness.test.ts`, `test/resolver.test.ts`, or `e2e/website.spec.ts` here **first** before merging the `SecID` registry PR.
 - **Playwright E2E gate (`e2e/`):** Tag any e2e test that fetches external third-party URLs with `@third-party` so it is excluded from the production post-deploy gate (`--grep-invert @third-party`).

@@ -179,9 +179,15 @@ A hand deploy skips the post-deploy verification, so run it yourself afterwards:
 npx playwright test --grep-invert @third-party
 ```
 
-## Related Repositories
+## Related Repositories & Documentation
 
-| Repo | Purpose |
-|------|---------|
+| Document / Repo | Purpose |
+|---|---|
+| [`BUSINESS-CASE.md`](BUSINESS-CASE.md) | Business case, stakeholder value, AI enablement, and operational burden |
+| [`GOALS.md`](GOALS.md) | Vision, objectives, and success metrics |
+| [`OPERATIONAL-RESOURCES.md`](OPERATIONAL-RESOURCES.md) | Cloudflare Workers, KV, Analytics Engine, and GitHub Actions architecture |
+| [`BACKUP-RESOURCES.md`](BACKUP-RESOURCES.md) | Recovery playbooks and RTO/RPO |
+| [`INTERFACE-RESOURCES.md`](INTERFACE-RESOURCES.md) | Public REST, MCP, and website surface map |
+| [`DECISIONS.md`](DECISIONS.md) | Architecture Decision Records |
 | [SecID](https://github.com/CloudSecurityAlliance/SecID) | Specification + registry data |
 | **SecID-Service** (this repo) | Cloudflare Worker REST API + MCP server |
