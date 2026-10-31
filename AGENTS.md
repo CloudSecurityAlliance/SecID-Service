@@ -56,10 +56,22 @@ SecID-Service/
 ├── e2e/                    # Playwright against production; also the post-deploy gate
 ├── website/                # Astro static site (served from same Worker)
 ├── wrangler.toml           # Cloudflare Worker config (account, KV, routes)
+├── AGENTS.md, REVIEW.md    # Agent instructions and code review rules (CLAUDE.md / GEMINI.md shims)
 └── .github/workflows/
     ├── ci.yml                  # PR gate: typecheck, website build, unit tests (never deploys)
     └── registry-kv-upload.yml  # Deploy: push to main, repository_dispatch from SecID, manual
 ```
+
+## Code Review Rules
+
+For automated and agent code reviews (`codex review`, Claude Code Review via [`REVIEW.md`](REVIEW.md), and GitHub Copilot Code Review), enforce these checks on every pull request:
+
+1. **Authority, Provenance, and CI/Deploy Guardrails:** Every merge to `main` runs `registry-kv-upload.yml`, syncs Cloudflare KV (`secid_REGISTRY`), and deploys the production Worker at `secid.cloudsecurityalliance.org`. Agent-authored commits must end with `AI-Agent: <Name>`, and agent PR bodies/comments must start with `*Agent: <Name> (SecID governing agent)*`. Changes to `.github/workflows/*.yml`, `wrangler.toml`, `AGENTS.md`, or `REVIEW.md` must never weaken unit tests (`npm test`), post-deploy Playwright verification (`npm run test:e2e`), or KV sync safety guards without an independent cross-vendor review recorded on the PR.
+2. **MCP Output Sanitization and Untrusted Input Handling:** Every MCP tool (`resolve`, `lookup`, `describe` in `src/mcp.ts`) returning registry-derived fields must pass through `sanitizeResult()` / `sanitizeEnvelope()` (`src/sanitize.ts`), recursively relocating untrusted prose keys (`description`, `notes`, `note`, `purpose`, `reason`, `guidance`, `examples`, `disclaimer`, `summary`, `title`) into `_untrusted_prose` with `_prose_warning` and recursively capping strings/arrays/dicts via `capValue()` (`MAX_STRING_LEN`). `submit_feedback` (`src/feedback.ts`) must keep caller text inside the `untrusted` envelope (`schema_version: 2`).
+3. **`/mcp` HTTP Method Gate Parity (ADR-015):** Changes to `src/method-gate.ts` must preserve explicit status codes (`405` + `Allow: POST, OPTIONS` for non-POST MCP requests, `302` to `/#mcp-setup` only for positively identified browsers, `501` for unregistered methods; never hold SSE streams open or redirect SDK clients), update both `test/method-gate.test.ts` and `e2e/mcp.spec.ts`, and stay in lockstep with `CSA-MCP-Core`.
+4. **Abuse-Resistance and Operational Limits:** Preserve explicit input and payload guards (`secid` ≤ 1024 chars; MCP HTTP body ≤ 64 KiB counted on received bytes including chunked transfers; JSON-RPC batch ≤ 10 messages and no `submit_feedback` in batches; `submit_feedback` capped at 20 writes/min/isolate via `src/write-budget.ts`).
+5. **KV Sync Safety and Resolver Semantics:** Preserve the 50-orphan deletion safety threshold in `scripts/upload-registry-kv.ts --sync` and the 25 MiB per-key KV value limit. Production code must read from KV (`src/kv-registry.ts`), never from the gitignored test snapshot `src/registry.ts`. Keep `src/type-registry.ts` (`TYPE_REGISTRY`) in lockstep with `CloudSecurityAlliance/SecID` and `SecID-Server-API`.
+6. **Testing and Release-Train Guards:** Require Vitest coverage (`test/`) for parser, resolver, sanitization, KV, and MCP changes. When a registry source in `CloudSecurityAlliance/SecID` transitions to `version_required: true` or changes version lists, update `test/resolver.test.ts` here **first** before merging the `SecID` registry PR. Tag e2e tests (`e2e/`) that depend on external third-party URLs with `@third-party`.
 
 ## Build, Test, and Development Commands
 
