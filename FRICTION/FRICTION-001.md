@@ -17,7 +17,7 @@ End-to-end verification on 2026-05-13:
 - `secid:control/aicpa.org/tsc#CC6.1` (merged 2026-05-13) — live with descriptive group data
 - `secid:disclosure/silabs.com/cna` — overlay-injected `_broken_*` annotations from PR #4 present in response
 
-Registry has grown from ~700 namespaces (at time of friction filing) to 1,151 as of 2026-05-17, all propagated cleanly. Verification commands are documented in [SecID/CLAUDE.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/CLAUDE.md#cicd) so future friction recurrences can be diagnosed faster.
+Registry has grown from ~700 namespaces (at time of friction filing) to 1,151 as of 2026-05-17, all propagated cleanly. Verification commands are documented in [SecID/AGENTS.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/AGENTS.md#cicd) so future friction recurrences can be diagnosed faster.
 
 Specific fix path that resolved Stage 1 + Stage 2 is not captured here in detail (predates this update); see git history of `.github/workflows/` and any recent token-rotation work.
 

@@ -7,7 +7,7 @@
 
 ## Resolution
 
-Deploy chain verified healthy on 2026-05-13. Recent successful runs of "Notify registry update" (SecID) and "Upload registry to KV" (SecID-Service) — chain operating normally and registry content reaching the live resolver. Verification commands documented in [SecID/CLAUDE.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/CLAUDE.md#cicd).
+Deploy chain verified healthy on 2026-05-13. Recent successful runs of "Notify registry update" (SecID) and "Upload registry to KV" (SecID-Service) — chain operating normally and registry content reaching the live resolver. Verification commands documented in [SecID/AGENTS.md "Checking deploy-chain health"](https://github.com/CloudSecurityAlliance/SecID/blob/main/AGENTS.md#cicd).
 
 Live resolves confirm recent merges are propagating end-to-end:
 - `secid:control/iso.org/27017` — ISO 27017:2015 entry (merged 2026-05-10) returns full data
