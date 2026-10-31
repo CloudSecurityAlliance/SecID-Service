@@ -11,10 +11,10 @@ Provide a fast, reliable, abuse-resistant, zero-setup public resolution service 
 - **Objective:** Operate an autonomous, zero-downtime edge deployment pipeline that keeps `secid.cloudsecurityalliance.org` synchronized with the authoritative JSON registry in [`CloudSecurityAlliance/SecID`](https://github.com/CloudSecurityAlliance/SecID).
   - **Success metrics:**
     - ≥ 99.5% rolling 90-day availability across `/`, `/api/v1/resolve`, and `/mcp`.
-    - 100% of `CloudSecurityAlliance/SecID` merges touching `registry/**/*.json` automatically synced to Cloudflare KV (`secid_REGISTRY`), deployed, and verified by the post-deploy Playwright gate (`registry-kv-upload.yml`) within 3 minutes.
+    - 100% of `CloudSecurityAlliance/SecID` `main` merges touching `registry/**/*.json` trigger `registry-kv-upload.yml` so the latest validated registry state is synced to Cloudflare KV (`secid_REGISTRY`), deployed, and verified by the post-deploy Playwright gate within ~3 minutes.
 - **Objective:** Capture actionable demand intelligence from real-world resolution traffic and agent feedback to guide registry expansion.
   - **Success metrics:**
-    - 100% of unresolved namespace misses logged to Analytics Engine (`secid_DEMAND`) and exportable via `scripts/export-misses.ts`.
+    - 100% of eligible unresolved namespace-miss queries (valid domain structure, ≤ 96 bytes per `src/demand.ts`) emitted to Analytics Engine (`secid_DEMAND`) and exportable via `scripts/export-misses.ts`.
     - 100% of `submit_feedback` entries in `secid_FEEDBACK` triaged into registry issues or pull requests.
 
 ## Community & Ecosystem Goals
@@ -22,7 +22,7 @@ Provide a fast, reliable, abuse-resistant, zero-setup public resolution service 
 - **Objective:** Deliver a deterministic, spec-conformant REST API (`/api/v1/resolve`) and interactive web documentation (`website/`) that make SecID grammar and all 2,138+ namespaces immediately usable without local setup.
   - **Success metrics:**
     - 100% pass rate on the auto-generated registry example test suite (`test/resolver.test.ts`, `test/parser.test.ts`) and the cross-language live conformance suite in [`SecID-Client-SDK`](https://github.com/CloudSecurityAlliance/SecID-Client-SDK).
-    - Behavioral lockstep between `SecID-Service` (TypeScript/Cloudflare Worker) and [`SecID-Server-API`](https://github.com/CloudSecurityAlliance/SecID-Server-API) (self-hosted Python resolver) across all four resolution statuses (`found`, `corrected`, `related`, `not_found`) and `lang` filtering.
+    - Core resolution parity between `SecID-Service` (TypeScript/Cloudflare Worker) and [`SecID-Server-API`](https://github.com/CloudSecurityAlliance/SecID-Server-API) (self-hosted Python resolver) across all five `ResponseStatus` values (`found`, `corrected`, `related`, `not_found`, `error`) and `lang` filtering, aside from documented self-hosted API differences.
 - **Objective:** Provide a hardened, standards-compliant remote MCP server (`/mcp`) that AI agents can connect to safely.
   - **Success metrics:**
     - 100% of registry-derived prose fields returned by `/mcp` tools (`resolve`, `lookup`, `describe`) recursively sanitized and isolated in `registry_text_untrusted` (`src/sanitize.ts`, verified by `test/sanitize.test.ts`).
