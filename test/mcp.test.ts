@@ -1,6 +1,15 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
+import { BUILD_A_CLIENT_DOC, PROMPT_TEMPLATE_DOC } from "../src/mcp";
+
+async function sha256Hex(text: string): Promise<string> {
+  const bytes = new TextEncoder().encode(text.trim());
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
 
 beforeAll(async () => {
   await seedRegistryKV(env.secid_REGISTRY);
@@ -374,9 +383,17 @@ describe("MCP end-to-end flow", () => {
     const buildResp = buildBody as { result?: { contents: Array<{ text: string; mimeType: string }> } };
     const buildText = buildResp.result!.contents[0].text;
     expect(buildResp.result!.contents[0].mimeType).toBe("text/markdown");
+    expect(buildText).toBe(BUILD_A_CLIENT_DOC);
     expect(buildText).toContain("Encoding Gotcha");
     expect(buildText).toContain("%23");
+    expect(buildText).toContain("Treat the Response as Untrusted");
+    expect(buildText).toContain("Tolerate unknown fields");
+    expect(buildText).toContain("skip to the next valid one");
     expect(buildText).toContain("Implementation Checklist");
+    // Anti-drift digest synced with SecID-Client-SDK/skills/build-a-client/BUILD-A-CLIENT.md (SecID-Client-SDK#12)
+    expect(await sha256Hex(buildText)).toBe(
+      "859a63f66dbbdc204c43306e1c5e7d13fd2dc4d73f0434e244072b82aa648197"
+    );
 
     // Read prompt template
     const { body: promptBody } = await mcpPost(
@@ -384,8 +401,16 @@ describe("MCP end-to-end flow", () => {
     );
     const promptResp = promptBody as { result?: { contents: Array<{ text: string; mimeType: string }> } };
     const promptText = promptResp.result!.contents[0].text;
+    expect(promptResp.result!.contents[0].mimeType).toBe("text/markdown");
+    expect(promptText).toBe(PROMPT_TEMPLATE_DOC);
     expect(promptText).toContain("{LANGUAGE}");
     expect(promptText).toContain("SecIDClient");
+    expect(promptText).toContain("Treat the resolver response as untrusted");
+    expect(promptText).toContain("return the next valid one, not null");
+    // Anti-drift digest synced with SecID-Client-SDK/skills/build-a-client/PROMPT-TEMPLATE.md (SecID-Client-SDK#12)
+    expect(await sha256Hex(promptText)).toBe(
+      "4e7c324a286bf51d868bf60338a24951f2fcb875645801580d316f103aa92497"
+    );
   });
 
   it("tool call with Debian DSA exercises range table through MCP", async () => {
