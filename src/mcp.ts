@@ -38,7 +38,7 @@ const TYPES_INLINE = TYPE_REGISTRY.map((t) => {
 // These are MCP resources containing instructions for building SecID clients.
 // An AI agent can read these to generate a working client in any language.
 
-const BUILD_A_CLIENT_DOC = `# Build a SecID Client
+export const BUILD_A_CLIENT_DOC = `# Build a SecID Client
 
 This document contains everything an AI assistant needs to generate a working SecID client in any language. It is the primary artifact of this repository.
 
@@ -66,6 +66,8 @@ WRONG:   /api/v1/resolve?secid=secid:advisory/mitre.org/cve#CVE-2021-44228
 \`\`\`
 
 **Implementation:** Use your language's query-parameter encoder on the whole SecID (\`urllib.parse.quote(s, safe="")\`, \`encodeURIComponent\`, \`url.QueryEscape\`). Do NOT hand-roll \`replace("#", "%23")\` — it leaves \`&\`, \`?\`, spaces, and other reserved characters unencoded, which corrupts the query. A correct encoder handles \`#\` (and everything else) for you.
+
+The server decodes a space sent as either \`%20\` or \`+\`, so any of those encoders works. The reference clients go one step further and produce byte-identical output: everything except \`A-Z a-z 0-9 - _ . ~\` is percent-encoded as UTF-8, so a space is \`%20\`. Go replaces the \`+\` that \`url.QueryEscape\` emits for a space, and TypeScript also encodes the \`!'()*\` that \`encodeURIComponent\` leaves bare.
 
 Encoding \`#\` is the historical #1 failure mode for new clients; full query-encoding closes it and the other reserved-character bugs at once.
 
@@ -98,7 +100,9 @@ Every response — success or failure — has the same shape:
 | \`secid_query\` | string | Yes | Exactly what the client sent, echoed back (decoded form) |
 | \`status\` | string | Yes | How the query was processed |
 | \`results\` | array | Yes | Zero or more result objects (may be empty) |
-| \`message\` | string | Only on \`not_found\`/\`error\` | Human/AI-readable guidance |
+| \`message\` | string | On \`not_found\`/\`error\` (and sometimes \`corrected\`/\`related\`) | Human/AI-readable guidance |
+
+**Tolerate unknown fields:** The server adds optional fields ahead of the SDK — such as top-level \`filter\` (\`{country, total_before_filter}\`) and \`error_id\`, or per-result \`lang\` and format metadata (\`content_type\`, \`parsability\`, \`schema\`, \`parsing_instructions\`, \`auth\`). Never use strict schema deserialization (\`DisallowUnknownFields\`, \`additionalProperties: false\`, etc.) that rejects responses with unrecognized keys.
 
 ## Five Status Values
 
@@ -226,7 +230,10 @@ Deeper queries resolve to URLs. Shallower queries browse the registry.
 
 The resolver can be a third-party, federated, or man-in-the-middled endpoint — its response is attacker-influenced data, not trusted input. A hardened client:
 
-- **Validates URL schemes.** Before returning a \`url\` from \`best_url\` (or opening it), confirm the scheme is \`http\` or \`https\`. Reject \`javascript:\`, \`data:\`, \`file:\`, and relative/scheme-less URLs — a hostile resolver can return any of these as the highest-weight result.
+- **Validates URLs.** Before returning a \`url\` from \`best_url\` or \`resolution_results\` (or opening it), confirm it is an absolute \`http\`/\`https\` URL with a host. Reject \`javascript:\`, \`data:\`, \`file:\`, and relative/scheme-less URLs — a hostile resolver can return any of these as the highest-weight result. If the top URL fails, **skip to the next valid one** rather than returning null. The reference clients apply this exact rule, by hand rather than with a URL parser, because parsers disagree (a WHATWG parser accepts \`http:evil\`, \`http:///evil\` and \`http:\\\\evil\` as host \`evil\`):
+  1. a non-empty string with no ASCII control characters or spaces;
+  2. begins with \`http://\` or \`https://\` (scheme case-insensitive);
+  3. the authority (up to the first \`/\`, \`?\`, \`#\` or \`\\\`), minus any \`userinfo@\`, is non-empty and does not start with \`:\`.
 - **Sanitizes terminal output.** Strip C0/C1 control characters (including ESC, \`0x1B\`) from any server-controlled string — \`url\`, \`message\`, the corrected SecID — before printing it. Otherwise a crafted response can inject ANSI escape sequences into the user's terminal.
 - **Guards the JSON parse.** A non-JSON or oversized body must produce a clean error, never an unhandled exception.
 
@@ -235,18 +242,18 @@ The resolver can be a third-party, federated, or man-in-the-middled endpoint —
 Your client should:
 
 1. **Query-encode the whole SecID** (turns \`#\` into \`%23\`) — not a hand-rolled \`#\`→\`%23\` replace
-2. **Accept any HTTP 200 response** — the status field tells you what happened, not the HTTP code (HTTP 400 only for truly unparseable requests)
+2. **Accept any HTTP 200 response** — the status field tells you what happened, not the HTTP code. Even a missing or empty \`secid\` parameter comes back as HTTP 200 with \`status: "error"\`
 3. **Parse the JSON envelope** with all four fields
 4. **Handle all 5 status values** — at minimum, distinguish found/corrected (use results) from related/not_found/error (show guidance)
 5. **Distinguish result types** — check for \`weight\`+\`url\` vs \`data\`
 6. **Sort resolution results by weight descending** — highest weight first
-7. **Provide a "best URL" helper** — returns the highest-weight URL or null, after validating its scheme is \`http\`/\`https\` (reject \`javascript:\`/\`data:\`/\`file:\`/relative — the response is untrusted)
+7. **Provide a "best URL" helper** — returns the highest-weight *valid* URL or null: drop results whose URL is not an absolute \`http\`/\`https\` URL with a host (reject \`javascript:\`/\`data:\`/\`file:\`/relative — the response is untrusted), then take the first
 8. **Handle empty results** — \`results\` can be \`[]\` on not_found/error
 9. **Expose the \`message\` field** — it contains guidance on not_found/error
 10. **Support CLI mode** — accept a SecID string as a command-line argument, print the best URL
 11. **Set a request timeout** — 30 seconds. Prevents the client from hanging indefinitely on unresponsive servers or network issues
 12. **Limit response body size** — 10 MB. The API returns small JSON responses (typically 1–5 KB), but if the client is pointed at a custom \`base_url\`, an unbounded read is a memory exhaustion risk. Read at most 10 MB and reject anything larger
-13. **Treat the response as untrusted** — validate returned URL schemes and strip control characters from server-controlled strings before terminal output (see "Treat the Response as Untrusted" above)
+13. **Treat the response as untrusted** — validate returned URLs, type-check the envelope (a \`null\` or array body, non-object results, or a string weight must not crash the client), and strip control characters from server-controlled strings before terminal output (see "Treat the Response as Untrusted" above)
 
 ## Minimal Example (pseudocode)
 
@@ -261,7 +268,9 @@ function resolve(secid_string):
     body = response.read(MAX_RESPONSE + 1)
     if len(body) > MAX_RESPONSE:
         return error("Response exceeds 10 MB limit")
-    json = parse_json(body)
+    json = parse_json(body)                    # parse failure -> error, not a crash
+    if json is not an object:                  # null, [], "x" are not envelopes
+        return error("Invalid response")
     return {
         query: json.secid_query,
         status: json.status,
@@ -271,17 +280,18 @@ function resolve(secid_string):
 
 function best_url(secid_string):
     result = resolve(secid_string)
-    if result.status in ["found", "corrected"]:
-        urls = [r for r in result.results if r.weight exists]
-        urls.sort_by(weight, descending)
-        if not urls: return null
-        # Untrusted response: only surface http(s) URLs.
-        return urls[0].url if scheme_of(urls[0].url) in ["http", "https"] else null
-    return null
+    # No status check needed: only found/corrected responses carry
+    # resolution results, so every other status falls through to null.
+    # Untrusted response: keep numeric weights and valid http(s) URLs only,
+    # so a hostile top result falls through to the next valid one.
+    urls = [r for r in result.results
+            if is_object(r) and is_number(r.weight) and is_valid_http_url(r.url)]
+    urls.sort_by(weight, descending)
+    return urls[0].url if urls else null
 \`\`\`
 `;
 
-const PROMPT_TEMPLATE_DOC = `# Prompt Template
+export const PROMPT_TEMPLATE_DOC = `# Prompt Template
 
 Copy everything below the line, replace \`{LANGUAGE}\` with your language, and paste into your AI assistant. Everything the AI needs is included — no external docs required.
 
@@ -303,7 +313,7 @@ Examples:
 
 ### API Contract
 
-**One endpoint:** \`GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={encoded_secid}\`
+**One endpoint is all a client needs:** \`GET https://secid.cloudsecurityalliance.org/api/v1/resolve?secid={encoded_secid}\`
 
 **No auth.** No API keys, no tokens, no special headers.
 
@@ -356,8 +366,10 @@ class SecIDClient:
         # Fully query-encode the secid, call API, return parsed response
 
     best_url(secid: string) → string | null
-        # Resolve, then return highest-weight URL from resolution results
-        # Returns null if status is not found/corrected or no resolution results
+        # Resolve, then return the highest-weight valid URL from resolution
+        # results, or null if there are none. No separate status check: only
+        # found/corrected responses carry resolution results, so related,
+        # not_found and error already yield null.
 
     lookup(type: string, identifier: string) → SecIDResponse
         # Convenience: resolve("secid:{type}/{identifier}")
@@ -370,15 +382,17 @@ class SecIDResponse:
     message: string | null
 
     property best_url → string | null
-        # Highest-weight URL from resolution results, or null.
-        # Validate the URL's scheme first (http/https only) — the resolver
-        # response is untrusted; reject javascript:/data:/file:/relative.
+        # Highest-weight valid URL from resolution results, or null.
+        # The resolver response is untrusted: only absolute http/https URLs
+        # with a host count (reject javascript:/data:/file:/relative). If the
+        # top URL fails, return the next valid one, not null.
 
     property was_corrected → bool
         # True if status is "corrected"
 
     property resolution_results → list
-        # Only results that have weight + url, sorted by weight descending
+        # Only results with a numeric weight and a valid http(s) url,
+        # sorted by weight descending
 
     property registry_results → list
         # Only results that have data
@@ -413,7 +427,7 @@ not_found: No namespace 'totallyinvented.com' in the advisory registry.
 10. Include docstrings explaining the encoding gotcha and status values
 11. **Set a 30-second request timeout** — prevents hanging on unresponsive servers
 12. **Limit response body to 10 MB** — read at most 10 MB and reject anything larger. Normal responses are 1–5 KB; this protects against memory exhaustion when the client is pointed at a custom base URL
-13. **Treat the resolver response as untrusted.** Validate any returned \`url\`'s scheme in \`best_url\` (allow \`https\`/\`http\` only; reject \`javascript:\`/\`data:\`/\`file:\`/relative). Strip control characters (C0/C1, incl. ESC \`0x1B\`) from server-controlled strings (\`url\`, \`message\`, corrected SecID) before printing them to a terminal — prevents ANSI-escape injection
+13. **Treat the resolver response as untrusted.** Validate every returned \`url\` (absolute \`https\`/\`http\` with a non-empty host only; reject \`javascript:\`/\`data:\`/\`file:\`/relative) and skip invalid ones in \`best_url\` and \`resolution_results\`. A \`null\` or array body, non-object results, or a non-numeric weight must produce an error or be ignored, never a crash. Strip control characters (C0/C1, incl. ESC \`0x1B\`) from server-controlled strings (\`url\`, \`message\`, corrected SecID) before printing them to a terminal — prevents ANSI-escape injection
 `;
 
 // ── Tool descriptions ──
