@@ -200,17 +200,27 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       { param: "country", field: "country", ci: true },
     ];
 
-    for (const { param, field, ci } of filters) {
-      const value = c.req.query(param) ?? qualifierFromSecID(decoded, param);
-      if (!value) continue;
+    const activeFilters: Array<{ param: string; field: string; ci: boolean; value: string }> = [];
+    for (const f of filters) {
+      const value = c.req.query(f.param) ?? qualifierFromSecID(decoded, f.param);
+      if (value) activeFilters.push({ ...f, value });
+    }
 
-      const matches = (entry: unknown): boolean => {
-        const values = (entry as Record<string, unknown>)?.[field];
-        if (!Array.isArray(values)) return false;
-        return ci
-          ? values.some((v) => String(v).toLowerCase() === value.toLowerCase())
-          : values.includes(value);
-      };
+    if (activeFilters.length > 0) {
+      const matchesAll = (entry: unknown): boolean =>
+        activeFilters.every(({ field, ci, value }) => {
+          const values = (entry as Record<string, unknown>)?.[field];
+          if (!Array.isArray(values)) return false;
+          return ci
+            ? values.some((v) => String(v).toLowerCase() === value.toLowerCase())
+            : values.includes(value);
+        });
+
+      const filterMeta: Record<string, string | number> = {};
+      for (const { param, value } of activeFilters) {
+        filterMeta[param] = value;
+      }
+      const filterDesc = activeFilters.map(({ param, value }) => `${param} "${value}"`).join(" and ");
 
       const nested =
         result.results.length === 1
@@ -219,28 +229,42 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
 
       if (Array.isArray(nested)) {
         const before = nested.length;
-        const filtered = nested.filter(matches);
+        const filtered = nested.filter(matchesAll);
         const single = result.results[0] as { data: Record<string, unknown> };
         return c.json({
           ...result,
           results: [{ ...single, data: { ...single.data, namespaces: filtered, namespace_count: filtered.length } }],
-          filter: { [param]: value, total_before_filter: before },
+          filter: { ...filterMeta, total_before_filter: before },
           ...(filtered.length === 0 && before > 0
-            ? { message: `No namespaces with ${param} "${value}" found in this type.` }
+            ? { message: `No namespaces with ${filterDesc} found in this type.` }
             : {}),
         });
       }
 
-      const before = result.results.length;
-      const filtered = result.results.filter((r) => matches((r as { data?: unknown }).data));
-      return c.json({
-        ...result,
-        results: filtered,
-        filter: { [param]: value, total_before_filter: before },
-        ...(filtered.length === 0 && before > 0
-          ? { message: `No namespaces with ${param} "${value}" found in this type.` }
-          : {}),
-      });
+      // Per-entry listings (listNamespaces, listSources) have status "found" and
+      // carry a subtypes array on each result's data (or have zero entries when a
+      // namespace has no match_nodes). Item resolutions, Level 3 source
+      // descriptions, and non-found responses pass through untouched.
+      const isPerEntryListing =
+        result.status === "found" &&
+        result.results.every((r) => Array.isArray((r as { data?: { subtypes?: unknown } }).data?.subtypes));
+
+      if (isPerEntryListing) {
+        const before = result.results.length;
+        const filtered = result.results.filter((r) => matchesAll((r as { data?: unknown }).data));
+        const isSourceListing = result.results.some(
+          (r) => typeof (r as { data?: { child_count?: unknown } }).data?.child_count === "number"
+        );
+        const emptyMsg = isSourceListing
+          ? `No sources with ${filterDesc} found in this namespace.`
+          : `No namespaces with ${filterDesc} found in this type.`;
+        return c.json({
+          ...result,
+          results: filtered,
+          filter: { ...filterMeta, total_before_filter: before },
+          ...(filtered.length === 0 && before > 0 ? { message: emptyMsg } : {}),
+        });
+      }
     }
     return c.json(result);
   } catch (err) {

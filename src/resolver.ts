@@ -82,8 +82,8 @@ export function resolve(
     );
   }
 
-  // Namespace-only query: list sources
-  if (!parsed.name) {
+  // Namespace-only query (or namespace/* wildcard): list sources
+  if (!parsed.name || parsed.name === "*") {
     return listSources(query, parsed, ns);
   }
 
@@ -139,8 +139,16 @@ function listSources(
   parsed: ParsedSecID,
   ns: RegistryNamespace
 ): ResolveResponse {
+  const country = (ns as unknown as { tags?: { country?: unknown } }).tags?.country;
   const results: RegistryResult[] = ns.match_nodes.map((node) => {
     const nameSlug = extractNameSlug(node);
+    const subtypes = new Set<string>();
+    const raw = (node.data as Record<string, unknown> | undefined)?.subtype;
+    if (Array.isArray(raw)) {
+      for (const v of raw) if (typeof v === "string") subtypes.add(v);
+    } else if (typeof raw === "string") {
+      subtypes.add(raw);
+    }
     return {
       secid: `secid:${parsed.type}/${parsed.namespace}/${nameSlug}`,
       data: {
@@ -148,6 +156,8 @@ function listSources(
         common_name: node.data.common_name ?? null,
         description: node.data.description ?? node.description,
         child_count: node.children?.length ?? 0,
+        subtypes: [...subtypes].sort(),
+        ...(Array.isArray(country) && country.length ? { country } : {}),
       },
     };
   });
