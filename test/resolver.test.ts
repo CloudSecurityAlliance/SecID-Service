@@ -433,3 +433,100 @@ describe("qualifier filtering across cross-source and subpath resolution (#55)",
     expect(r.message).toContain('No results with parsability "structured"');
   });
 });
+
+describe("vendor-specific CVE resolution and structured API filtering (#218)", () => {
+  it("resolves Red Hat CVE-2023-44487 across redhat.com/cve (HTML + Hydra JSON) and redhat.com/bugzilla", () => {
+    const cve = resolveSecID("secid:advisory/redhat.com/cve#CVE-2023-44487");
+    expect(cve.status).toBe("found");
+    const cveUrls = cve.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(cveUrls).toContain("https://access.redhat.com/security/cve/CVE-2023-44487");
+    expect(cveUrls).toContain("https://access.redhat.com/hydra/rest/securitydata/cve/CVE-2023-44487.json");
+
+    const structured = resolveSecID("secid:advisory/redhat.com/cve#CVE-2023-44487?parsability=structured");
+    expect(structured.status).toBe("found");
+    const structuredUrls = structured.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(structuredUrls).toEqual(["https://access.redhat.com/hydra/rest/securitydata/cve/CVE-2023-44487.json"]);
+
+    const bz = resolveSecID("secid:advisory/redhat.com/bugzilla#CVE-2023-44487");
+    expect(bz.status).toBe("found");
+    const bzUrls = bz.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(bzUrls).toEqual(["https://bugzilla.redhat.com/show_bug.cgi?id=CVE-2023-44487"]);
+  });
+
+  it("resolves Microsoft CVE-2024-21412 across MSRC HTML and SUG v2.0 JSON API", () => {
+    const msrc = resolveSecID("secid:advisory/microsoft.com/msrc#CVE-2024-21412");
+    expect(msrc.status).toBe("found");
+    const urls = msrc.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(urls).toContain("https://msrc.microsoft.com/update-guide/vulnerability/CVE-2024-21412");
+    expect(urls).toContain("https://api.msrc.microsoft.com/sug/v2.0/en-US/vulnerability/CVE-2024-21412");
+
+    const structured = resolveSecID("secid:advisory/microsoft.com/msrc#CVE-2024-21412?parsability=structured");
+    expect(structured.status).toBe("found");
+    const structuredUrls = structured.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(structuredUrls).toEqual(["https://api.msrc.microsoft.com/sug/v2.0/en-US/vulnerability/CVE-2024-21412"]);
+  });
+
+  it("resolves Palo Alto Networks CVE-2024-3400 across HTML, CVE JSON 5.x, and CSAF JSON", () => {
+    const pan = resolveSecID("secid:advisory/paloaltonetworks.com/pan-sa#CVE-2024-3400");
+    expect(pan.status).toBe("found");
+    const urls = pan.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(urls).toEqual([
+      "https://security.paloaltonetworks.com/CVE-2024-3400",
+      "https://security.paloaltonetworks.com/json/CVE-2024-3400",
+      "https://security.paloaltonetworks.com/csaf/CVE-2024-3400",
+    ]);
+
+    const structured = resolveSecID("secid:advisory/paloaltonetworks.com/pan-sa#CVE-2024-3400?parsability=structured");
+    expect(structured.status).toBe("found");
+    const structuredUrls = structured.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(structuredUrls).toEqual([
+      "https://security.paloaltonetworks.com/json/CVE-2024-3400",
+      "https://security.paloaltonetworks.com/csaf/CVE-2024-3400",
+    ]);
+  });
+
+  it("resolves Ubuntu CVE-2024-3094 to /security/{id} HTML and /security/cves/{id}.json API", () => {
+    const ubuntu = resolveSecID("secid:advisory/ubuntu.com/cve-tracker#CVE-2024-3094");
+    expect(ubuntu.status).toBe("found");
+    const urls = ubuntu.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(urls).toEqual([
+      "https://ubuntu.com/security/CVE-2024-3094",
+      "https://ubuntu.com/security/cves/CVE-2024-3094.json",
+    ]);
+    expect(urls).not.toContain("https://ubuntu.com/security/cves/CVE-2024-3094");
+
+    const structured = resolveSecID("secid:advisory/ubuntu.com/cve-tracker#CVE-2024-3094?parsability=structured");
+    expect(structured.status).toBe("found");
+    const structuredUrls = structured.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(structuredUrls).toEqual(["https://ubuntu.com/security/cves/CVE-2024-3094.json"]);
+  });
+
+  it("resolves SUSE CVE-2023-44487 across suse.com/cve and suse.com/bugzilla", () => {
+    const suseCve = resolveSecID("secid:advisory/suse.com/cve#CVE-2023-44487");
+    expect(suseCve.status).toBe("found");
+    const cveUrls = suseCve.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(cveUrls).toEqual(["https://www.suse.com/security/cve/CVE-2023-44487.html"]);
+
+    const suseBz = resolveSecID("secid:advisory/suse.com/bugzilla#CVE-2023-44487");
+    expect(suseBz.status).toBe("found");
+    const bzUrls = suseBz.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url);
+    expect(bzUrls).toEqual(["https://bugzilla.suse.com/show_bug.cgi?id=CVE-2023-44487"]);
+  });
+
+  it("resolves Debian, Oracle, and CISA Vulnrichment vendor-specific CVEs", () => {
+    const debian = resolveSecID("secid:advisory/debian.org/tracker#CVE-2023-44487");
+    expect(debian.status).toBe("found");
+    expect(debian.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url))
+      .toEqual(["https://security-tracker.debian.org/tracker/CVE-2023-44487"]);
+
+    const oracle = resolveSecID("secid:advisory/oracle.com/alert#CVE-2021-44228");
+    expect(oracle.status).toBe("found");
+    expect(oracle.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url))
+      .toEqual(["https://www.oracle.com/security-alerts/alert-cve-2021-44228.html"]);
+
+    const cisa = resolveSecID("secid:advisory/cisa.gov/vulnrichment#CVE-2024-3400?parsability=structured");
+    expect(cisa.status).toBe("found");
+    expect(cisa.results.filter((r): r is ResolutionResult => "url" in r).map((r) => r.url))
+      .toEqual(["https://raw.githubusercontent.com/cisagov/vulnrichment/develop/2024/3xxx/CVE-2024-3400.json"]);
+  });
+});
