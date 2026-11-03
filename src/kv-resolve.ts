@@ -1,6 +1,13 @@
 import { RegistryContext } from "./kv-registry";
-import { extractSecIDType, parseSecID } from "./parser";
-import { resolve, isOpenPattern, toRegExp, MAX_REGEX_INPUT_CHARS } from "./resolver";
+import { extractSecIDType, parseQualifiers, parseSecID } from "./parser";
+import {
+  applyQualifierFilters,
+  isOpenPattern,
+  MAX_REGEX_INPUT_CHARS,
+  qualifierNotFoundResponse,
+  resolve,
+  toRegExp,
+} from "./resolver";
 import { recordDemandMiss, type DemandChannel, type DemandMiss } from "./demand";
 import {
   isResolutionResult,
@@ -457,8 +464,13 @@ async function searchBareIdentifier(
   ctx: RegistryContext,
   input: string
 ): Promise<ResolveResponse | null> {
-  const trimmed = input.trim();
-  if (!trimmed || trimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
+  const rawTrimmed = input.trim();
+  if (!rawTrimmed || rawTrimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
+
+  const qIdx = rawTrimmed.indexOf("?");
+  const trimmed = qIdx === -1 ? rawTrimmed : rawTrimmed.slice(0, qIdx).trim();
+  const qualifiers = qIdx === -1 ? null : parseQualifiers(rawTrimmed.slice(qIdx + 1));
+  if (!trimmed) return null;
 
   // Single KV read: combined index across all types
   const globalIndex = await ctx.getGlobalIndex();
@@ -527,7 +539,7 @@ async function searchBareIdentifier(
       version: null,
       subpath: null,
       itemVersion: null,
-      qualifiers: null,
+      qualifiers,
     };
     const nsMap = await ctx.getNamespaces(type, [namespace]);
     const registry = buildPartialRegistry(type, nsMap);
@@ -545,7 +557,7 @@ async function searchBareIdentifier(
       version: null,
       subpath: null,
       itemVersion: null,
-      qualifiers: null,
+      qualifiers,
     };
     const nsMap = await ctx.getNamespaces(type, [...namespaces]);
     const registry = buildPartialRegistry(type, nsMap);
@@ -565,10 +577,29 @@ async function searchBareIdentifier(
     }
   }
 
-  if (allResults.length === 0) return null;
+  const filteredResults = qualifiers ? applyQualifierFilters(allResults, qualifiers) : allResults;
+  if (!filteredResults || filteredResults.length === 0) {
+    if (qualifiers) {
+      if (allResults.length > 0) {
+        return qualifierNotFoundResponse(input, allResults, qualifiers);
+      }
+      const qualifierMiss = resolveResults.find(
+        (r) => r.status === "not_found" && r.message && !r.message.startsWith("No results found for ")
+      );
+      if (qualifierMiss) {
+        return {
+          secid_query: input,
+          status: "not_found",
+          results: [],
+          message: qualifierMiss.message,
+        };
+      }
+    }
+    return null;
+  }
 
   // Sort: ResolutionResults first (by weight desc), then RegistryResults
-  allResults.sort((a, b) => {
+  filteredResults.sort((a, b) => {
     const aIsRes = isResolutionResult(a);
     const bIsRes = isResolutionResult(b);
     if (aIsRes && bIsRes) return b.weight - a.weight;
@@ -580,6 +611,6 @@ async function searchBareIdentifier(
   return {
     secid_query: input,
     status: "found",
-    results: allResults,
+    results: filteredResults,
   };
 }

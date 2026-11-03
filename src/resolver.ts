@@ -167,15 +167,33 @@ function resolveWithName(
   const matchedNode = findMatchingNode(ns.match_nodes, parsed.name!);
 
   if (!matchedNode) {
+    const identifier = parsed.name! + (parsed.subpath ? `${parsed.subpath}` : "");
     // Name didn't match any match_node — try cross-source within this namespace
     const crossResults = namespaceScopedSearch(parsed, ns);
     if (crossResults.length > 0) {
-      return response(query, "corrected", crossResults);
+      const filtered = applyQualifierFilters(crossResults, parsed.qualifiers);
+      if (filtered === null) {
+        return qualifierNotFoundResponse(query, crossResults, parsed.qualifiers!);
+      }
+      return response(query, "corrected", filtered);
+    }
+
+    if (parsed.qualifiers?.lang) {
+      for (const node of ns.match_nodes) {
+        if (!node.children) continue;
+        const langMsg = buildLangNotFoundMessage(node.children, identifier, parsed.qualifiers.lang);
+        if (langMsg) return response(query, "not_found", [], langMsg);
+      }
     }
 
     // Try type-wide cross-source
     const typeResults = typeScopedSearch(query, parsed, typeRegistry);
-    if (typeResults.results.length > 0) {
+    if (
+      typeResults.results.length > 0 ||
+      (typeResults.status === "not_found" &&
+        parsed.qualifiers &&
+        !typeResults.message?.startsWith("No results found for "))
+    ) {
       return typeResults;
     }
 
@@ -916,6 +934,12 @@ function namespaceScopedSearch(
     for (const child of node.children) {
       if (!nodeMatches(child, identifier, true)) continue;
 
+      if (parsed.qualifiers?.lang && child.data.lang) {
+        if (!child.data.lang.available.includes(parsed.qualifiers.lang)) {
+          continue;
+        }
+      }
+
       const nameSlug = extractNameSlug(node);
       const secid = `secid:${parsed.type}/${parsed.namespace}/${nameSlug}#${identifier}`;
       const url = resolveChildUrl(child, identifier, node, parsed.qualifiers);
@@ -924,6 +948,11 @@ function namespaceScopedSearch(
         const res: ResolutionResult = { secid, weight: child.weight, url };
         if (child.data.content_type) res.content_type = child.data.content_type;
         addFormatMetadata(res, child.data);
+        if (child.data.lang) {
+          const langCode = parsed.qualifiers?.lang ?? child.data.lang.default;
+          res.lang = langCode;
+          if (!parsed.qualifiers?.lang) res.weight += 1;
+        }
         results.push(res);
       } else {
         results.push({
@@ -1016,6 +1045,12 @@ function typeScopedSearch(
       for (const child of node.children) {
         if (!nodeMatches(child, identifier, false)) continue;
 
+        if (parsed.qualifiers?.lang && child.data.lang) {
+          if (!child.data.lang.available.includes(parsed.qualifiers.lang)) {
+            continue;
+          }
+        }
+
         const nameSlug = extractNameSlug(node);
         const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}#${identifier}`;
         const url = resolveChildUrl(child, identifier, node, parsed.qualifiers);
@@ -1024,6 +1059,9 @@ function typeScopedSearch(
           const res: ResolutionResult = { secid, weight: child.weight, url };
           if (child.data.content_type) res.content_type = child.data.content_type;
           addFormatMetadata(res, child.data);
+          if (child.data.lang) {
+            res.lang = parsed.qualifiers?.lang ?? child.data.lang.default;
+          }
           results.push(res);
         } else {
           // Same shape as matchChildrenAndResolve: the note often carries the
@@ -1038,6 +1076,15 @@ function typeScopedSearch(
   }
 
   if (results.length === 0) {
+    if (parsed.qualifiers?.lang) {
+      for (const ns of Object.values(typeRegistry)) {
+        for (const node of ns.match_nodes) {
+          if (!node.children) continue;
+          const langMsg = buildLangNotFoundMessage(node.children, identifier, parsed.qualifiers.lang, false);
+          if (langMsg) return response(query, "not_found", [], langMsg);
+        }
+      }
+    }
     return response(query, "not_found", [], `No results found for "${identifier}" in type "${parsed.type}". If this source should be covered, request it at https://github.com/CloudSecurityAlliance/SecID/issues`);
   }
 
@@ -1048,7 +1095,12 @@ function typeScopedSearch(
     return (a as { secid: string }).secid.localeCompare((b as { secid: string }).secid);
   });
 
-  return response(query, "found", results);
+  const filtered = applyQualifierFilters(results, parsed.qualifiers);
+  if (filtered === null) {
+    return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
+  }
+
+  return response(query, "found", filtered);
 }
 
 // ── Helpers ──
@@ -1213,7 +1265,7 @@ function extractNameSlug(node: MatchNode): string {
   return node.description.toLowerCase().replace(/\s+/g, "-");
 }
 
-function applyQualifierFilters(
+export function applyQualifierFilters(
   results: ResultEntry[],
   qualifiers: Record<string, string> | null
 ): ResultEntry[] | null {
@@ -1221,20 +1273,20 @@ function applyQualifierFilters(
 
   let filtered = results;
 
-  // content_type filter
+  // content_type filter — only URL resolution results carry content_type
   if (qualifiers.content_type) {
     const target = qualifiers.content_type;
     filtered = filtered.filter((r) => {
-      if (!("url" in r)) return true; // Keep RegistryResults (metadata)
+      if (!("url" in r)) return false;
       return (r as ResolutionResult).content_type === target;
     });
   }
 
-  // parsability filter
+  // parsability filter — only URL resolution results carry parsability
   if (qualifiers.parsability) {
     const target = qualifiers.parsability;
     filtered = filtered.filter((r) => {
-      if (!("url" in r)) return true; // Keep RegistryResults (metadata)
+      if (!("url" in r)) return false;
       return (r as ResolutionResult).parsability === target;
     });
   }
@@ -1250,14 +1302,15 @@ function applyQualifierFilters(
     });
   }
 
-  // If all ResolutionResults were filtered out, signal "not found"
+  // If all results (or all ResolutionResults) were filtered out, signal "not found"
+  if (filtered.length === 0 && results.length > 0) return null;
   const hasResolution = filtered.some((r) => "url" in r);
   if (!hasResolution && results.some((r) => "url" in r)) return null;
   return filtered;
 }
 
 /** Build a not_found response when qualifier filtering removed all results. */
-function qualifierNotFoundResponse(
+export function qualifierNotFoundResponse(
   query: string,
   results: ResultEntry[],
   qualifiers: Record<string, string>
@@ -1269,7 +1322,19 @@ function qualifierNotFoundResponse(
       results.filter((r): r is ResolutionResult => "url" in r && !!r.content_type)
         .map((r) => r.content_type!)
     )];
-    parts.push(`No results with content_type "${qualifiers.content_type}". Available: ${available.join(", ") || "none declared"}.`);
+    if (!available.includes(qualifiers.content_type)) {
+      parts.push(`No results with content_type "${qualifiers.content_type}". Available: ${available.join(", ") || "none declared"}.`);
+    }
+  }
+
+  if (qualifiers.parsability) {
+    const available = [...new Set(
+      results.filter((r): r is ResolutionResult => "url" in r && !!r.parsability)
+        .map((r) => r.parsability!)
+    )];
+    if (!available.includes(qualifiers.parsability as NonNullable<ResolutionResult["parsability"]>)) {
+      parts.push(`No results with parsability "${qualifiers.parsability}". Available: ${available.join(", ") || "none declared"}.`);
+    }
   }
 
   if (qualifiers.lang) {
@@ -1277,7 +1342,19 @@ function qualifierNotFoundResponse(
       results.filter((r): r is ResolutionResult => "url" in r && !!r.lang)
         .map((r) => r.lang!)
     )];
-    parts.push(`No results for lang "${qualifiers.lang}". Available: ${available.join(", ") || "none declared"}.`);
+    if (!available.includes(qualifiers.lang)) {
+      parts.push(`No results for lang "${qualifiers.lang}". Available: ${available.join(", ") || "none declared"}.`);
+    }
+  }
+
+  if (parts.length === 0) {
+    const active = Object.entries(qualifiers)
+      .filter(([k]) => k === "content_type" || k === "parsability" || k === "lang")
+      .map(([k, v]) => `${k}="${v}"`)
+      .join(", ");
+    if (active) {
+      parts.push(`No results matched the combined qualifiers (${active}).`);
+    }
   }
 
   parts.push("Remove qualifiers to see all results.");
@@ -1288,10 +1365,11 @@ function qualifierNotFoundResponse(
 function buildLangNotFoundMessage(
   children: MatchNode[],
   subpath: string,
-  lang: string
+  lang: string,
+  allowOpen = true
 ): string | null {
   for (const child of children) {
-    if (!matchesAnyPattern(child.patterns, subpath)) continue;
+    if (!nodeMatches(child, subpath, allowOpen)) continue;
     if (child.data.lang && !child.data.lang.available.includes(lang)) {
       return `Language "${lang}" not available. Available: ${child.data.lang.available.join(", ")}. Remove ?lang to use default (${child.data.lang.default}).`;
     }

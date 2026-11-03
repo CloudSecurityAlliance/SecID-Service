@@ -13,7 +13,9 @@ export function extractSecIDType(input: string): SecIDType | null {
   const hashIdx = remaining.indexOf("#");
   const head = hashIdx !== -1 ? remaining.slice(0, hashIdx) : remaining;
   const firstSlash = head.indexOf("/");
-  const candidate = (firstSlash === -1 ? head : head.slice(0, firstSlash)).toLowerCase();
+  const rawCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
+  const qIdx = rawCandidate.indexOf("?");
+  const candidate = (qIdx === -1 ? rawCandidate : rawCandidate.slice(0, qIdx)).toLowerCase();
   return SECID_TYPES.includes(candidate as SecIDType) ? (candidate as SecIDType) : null;
 }
 
@@ -80,7 +82,13 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 
   // 3. Extract type (first segment before /)
   const firstSlash = head.indexOf("/");
-  const typeCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
+  let typeCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
+  let typeQualifiers: Record<string, string> | null = null;
+  const typeQIdx = typeCandidate.indexOf("?");
+  if (typeQIdx !== -1) {
+    typeQualifiers = parseQualifiers(typeCandidate.slice(typeQIdx + 1));
+    typeCandidate = typeCandidate.slice(0, typeQIdx);
+  }
   const typeLower = typeCandidate.toLowerCase();
 
   if (!SECID_TYPES.includes(typeLower as SecIDType)) {
@@ -92,6 +100,9 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 
   // Nothing after the type?
   if (firstSlash === -1) {
+    if (typeQualifiers || itemQualifiers) {
+      result.qualifiers = { ...typeQualifiers, ...itemQualifiers };
+    }
     return result;
   }
 
@@ -154,8 +165,8 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
   }
 
   // Merge qualifiers (item-level takes precedence over source-level)
-  if (sourceQualifiers || itemQualifiers) {
-    result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
+  if (typeQualifiers || sourceQualifiers || itemQualifiers) {
+    result.qualifiers = { ...typeQualifiers, ...sourceQualifiers, ...itemQualifiers };
   }
 
   return result;
@@ -164,7 +175,7 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 /**
  * Parse ?key=value&key2=value2 into a Record. Keys lowercased, values preserve case.
  */
-function parseQualifiers(raw: string): Record<string, string> {
+export function parseQualifiers(raw: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const pair of raw.split("&")) {
     const eqIdx = pair.indexOf("=");

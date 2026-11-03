@@ -143,10 +143,36 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
         message: "Registry KV not configured.",
       });
     }
-    const result = await resolveQuery(kv, decoded, {
+    // Merge top-level resolution qualifier query params (?parsability=, ?content_type=, ?lang=)
+    // when not already present inside the SecID string. This supports both:
+    //   1. Documented REST query parameters: ?secid=...&parsability=structured&content_type=application/json
+    //   2. Unencoded '&' after a SecID qualifier: ?secid=...?parsability=structured&content_type=application/json
+    const resolutionQualifiers = ["parsability", "content_type", "lang"] as const;
+    const extraQualifiers: string[] = [];
+    for (const key of resolutionQualifiers) {
+      const paramVal = c.req.query(key);
+      if (paramVal && !qualifierFromSecID(decoded, key)) {
+        extraQualifiers.push(`${key}=${paramVal}`);
+      }
+    }
+    const effectiveQuery =
+      extraQualifiers.length > 0
+        ? `${decoded}${decoded.includes("?") ? "&" : "?"}${extraQualifiers.join("&")}`
+        : decoded;
+    if (effectiveQuery.length > MAX_SECID_QUERY_CHARS) {
+      return c.json({
+        secid_query: decoded.slice(0, MAX_SECID_QUERY_CHARS),
+        status: "error",
+        results: [],
+        message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
+      });
+    }
+
+    const result = await resolveQuery(kv, effectiveQuery, {
       demand: c.env.secid_DEMAND,
       channel: "rest",
     });
+    result.secid_query = decoded;
 
     // Optional listing filters. Two response shapes need handling:
     //   1. Type-only query (e.g., secid:methodology) returns a single wrapper

@@ -263,4 +263,56 @@ describe("REST API", () => {
       expect(body.results[0].lang).toBe("fr");
     });
   });
+
+  describe("parsability and content_type qualifiers (#55, #10)", () => {
+    it("filters subpath resolution via top-level &parsability=structured query param", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2026-0019&parsability=structured"
+      );
+      const body = (await res.json()) as {
+        secid_query: string;
+        status: string;
+        results: Array<{ url?: string; parsability?: string; content_type?: string }>;
+      };
+      expect(body.secid_query).toBe("secid:advisory/mitre.org/cve#CVE-2026-0019");
+      expect(body.status).toBe("found");
+      expect(body.results.length).toBe(2);
+      for (const r of body.results) {
+        expect(r.parsability).toBe("structured");
+        expect(r.content_type).toBe("application/json");
+      }
+    });
+
+    it("filters cross-source search via top-level &parsability=structured&content_type=application/json", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/CVE-2026-0019&parsability=structured&content_type=application/json"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: Array<{ url?: string; parsability?: string; content_type?: string }>;
+      };
+      expect(body.status).toBe("found");
+      expect(body.results.length).toBeGreaterThan(0);
+      for (const r of body.results) {
+        expect(r.parsability).toBe("structured");
+        expect(r.content_type).toBe("application/json");
+      }
+    });
+
+    it("merges unencoded &content_type= when ?parsability= is inside the secid param", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/CVE-2026-0019%3Fparsability%3Dstructured&content_type=application/json"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: Array<{ url?: string; parsability?: string; content_type?: string }>;
+      };
+      expect(body.status).toBe("found");
+      expect(body.results.length).toBeGreaterThan(0);
+      for (const r of body.results) {
+        expect(r.parsability).toBe("structured");
+        expect(r.content_type).toBe("application/json");
+      }
+    });
+  });
 });
