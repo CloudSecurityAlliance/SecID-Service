@@ -99,6 +99,7 @@ export const TYPE_REGISTRY: readonly TypeDef[] = [
     long: "Documents, research papers, and identifier systems — arXiv, DOI, ISBN, RFCs, and CSA artifacts. Citation targets without normative force.",
     subtypes: [
       { value: "glossary", description: "A glossary document with addressable term-level subpaths. Entry is identity-only; term data lives in a separate dataset repository." },
+      { value: "strategy", description: "Strategy documents, multi-year action and implementation plans, and strategic reviews or evaluations — including national security and cybersecurity strategies, agency strategic plans, and corporate or organizational security strategies." },
     ],
   },
   {
