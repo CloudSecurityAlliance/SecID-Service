@@ -382,3 +382,54 @@ describe("buildUrl URL validation (F-01-01)", () => {
       .toBe("https://host.example/{year}/2024");
   });
 });
+
+describe("qualifier filtering across cross-source and subpath resolution (#55)", () => {
+  it("filters type-scoped cross-source search by ?parsability=structured and excludes URL-less notes", () => {
+    const r = resolveSecID("secid:advisory/CVE-2026-0019?parsability=structured");
+    expect(r.status).toBe("found");
+    expect(r.results.length).toBeGreaterThan(0);
+    for (const entry of r.results) {
+      expect("url" in entry).toBe(true);
+      expect((entry as { parsability?: string }).parsability).toBe("structured");
+    }
+  });
+
+  it("filters type-scoped cross-source search by combined ?parsability=structured&content_type=application/json", () => {
+    const r = resolveSecID("secid:advisory/CVE-2026-0019?parsability=structured&content_type=application/json");
+    expect(r.status).toBe("found");
+    expect(r.results.length).toBeGreaterThan(0);
+    for (const entry of r.results) {
+      expect("url" in entry).toBe(true);
+      expect((entry as { parsability?: string }).parsability).toBe("structured");
+      expect((entry as { content_type?: string }).content_type).toBe("application/json");
+    }
+  });
+
+  it("filters namespace-scoped corrected search by ?parsability=structured", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/CVE-2026-0019?parsability=structured");
+    expect(r.status).toBe("corrected");
+    expect(r.results.length).toBe(2);
+    for (const entry of r.results) {
+      expect((entry as { parsability?: string }).parsability).toBe("structured");
+      expect((entry as { content_type?: string }).content_type).toBe("application/json");
+    }
+  });
+
+  it("reports available parsability values when ?parsability filter removes all results", () => {
+    const r = resolveSecID("secid:advisory/debian.org/tracker#CVE-2026-0019?parsability=structured");
+    expect(r.status).toBe("not_found");
+    expect(r.message).toContain('No results with parsability "structured". Available: scraped.');
+  });
+
+  it("reports combined qualifier mismatch when each qualifier exists on different results", () => {
+    const r = resolveSecID("secid:advisory/mitre.org/cve#CVE-2026-0019?parsability=structured&content_type=text/html");
+    expect(r.status).toBe("not_found");
+    expect(r.message).toContain("No results matched the combined qualifiers");
+  });
+
+  it("returns not_found when ?parsability=structured is applied to a URL-less note source", () => {
+    const r = resolveSecID("secid:advisory/oracle.com/vm#OVMSA-2024-0001?parsability=structured");
+    expect(r.status).toBe("not_found");
+    expect(r.message).toContain('No results with parsability "structured"');
+  });
+});

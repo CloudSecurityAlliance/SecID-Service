@@ -12,8 +12,10 @@ export function extractSecIDType(input: string): SecIDType | null {
   if (!remaining) return null;
   const hashIdx = remaining.indexOf("#");
   const head = hashIdx !== -1 ? remaining.slice(0, hashIdx) : remaining;
-  const firstSlash = head.indexOf("/");
-  const candidate = (firstSlash === -1 ? head : head.slice(0, firstSlash)).toLowerCase();
+  const qIdx = head.indexOf("?");
+  const pathPart = qIdx !== -1 ? head.slice(0, qIdx) : head;
+  const firstSlash = pathPart.indexOf("/");
+  const candidate = (firstSlash === -1 ? pathPart : pathPart.slice(0, firstSlash)).toLowerCase();
   return SECID_TYPES.includes(candidate as SecIDType) ? (candidate as SecIDType) : null;
 }
 
@@ -74,6 +76,16 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
     head = remaining;
   }
 
+  // Strip source-level ?qualifiers from head before splitting path segments
+  // (e.g., ?content_type=application/json contains a '/' that must not be
+  // treated as a path separator).
+  let sourceQualifiers: Record<string, string> | null = null;
+  const headQIdx = head.indexOf("?");
+  if (headQIdx !== -1) {
+    sourceQualifiers = parseQualifiers(head.slice(headQIdx + 1));
+    head = head.slice(0, headQIdx);
+  }
+
   if (!head) {
     return result;
   }
@@ -92,20 +104,18 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 
   // Nothing after the type?
   if (firstSlash === -1) {
+    if (sourceQualifiers || itemQualifiers) {
+      result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
+    }
     return result;
   }
 
   remaining = head.slice(firstSlash + 1);
   if (!remaining) {
+    if (sourceQualifiers || itemQualifiers) {
+      result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
+    }
     return result;
-  }
-
-  // Strip source-level ?qualifiers before namespace resolution
-  let sourceQualifiers: Record<string, string> | null = null;
-  const headQIdx = remaining.indexOf("?");
-  if (headQIdx !== -1) {
-    sourceQualifiers = parseQualifiers(remaining.slice(headQIdx + 1));
-    remaining = remaining.slice(0, headQIdx);
   }
 
   // 4. Namespace resolution (shortest-to-longest matching)
@@ -164,7 +174,7 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 /**
  * Parse ?key=value&key2=value2 into a Record. Keys lowercased, values preserve case.
  */
-function parseQualifiers(raw: string): Record<string, string> {
+export function parseQualifiers(raw: string): Record<string, string> {
   const result: Record<string, string> = {};
   for (const pair of raw.split("&")) {
     const eqIdx = pair.indexOf("=");

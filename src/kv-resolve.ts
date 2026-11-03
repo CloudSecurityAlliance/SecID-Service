@@ -1,6 +1,13 @@
 import { RegistryContext } from "./kv-registry";
-import { extractSecIDType, parseSecID } from "./parser";
-import { resolve, isOpenPattern, toRegExp, MAX_REGEX_INPUT_CHARS } from "./resolver";
+import { extractSecIDType, parseQualifiers, parseSecID } from "./parser";
+import {
+  applyQualifierFilters,
+  isOpenPattern,
+  MAX_REGEX_INPUT_CHARS,
+  qualifierNotFoundResponse,
+  resolve,
+  toRegExp,
+} from "./resolver";
 import { recordDemandMiss, type DemandChannel, type DemandMiss } from "./demand";
 import {
   isResolutionResult,
@@ -39,10 +46,24 @@ export interface MissCapture {
   channel?: DemandChannel;
   feedbackKv?: KVNamespace;
   /**
+   * Optional top-level HTTP query qualifiers (e.g., ?parsability=structured on
+   * /api/v1/resolve). Merged into parsed.qualifiers with inline SecID qualifiers
+   * taking precedence.
+   */
+  qualifiers?: Record<string, string>;
+  /**
    * Internal to resolveQuery: when set, misses are collected here instead of
    * written, so that only the attempt whose result is returned is recorded.
    */
   pendingMisses?: DemandMiss[];
+}
+
+function mergeQualifiers(
+  inline: Record<string, string> | null,
+  extra?: Record<string, string>
+): Record<string, string> | null {
+  if (!extra || Object.keys(extra).length === 0) return inline;
+  return { ...extra, ...(inline ?? {}) };
 }
 
 export async function resolveFromKV(
@@ -90,13 +111,14 @@ export async function resolveFromKV(
     //       the resolver's invalid-type error path.
     const hasSecidPrefix = /^secid:/i.test(input.trimStart());
     if (!hasSecidPrefix && input.trim()) {
-      const bareResult = await searchBareIdentifier(ctx, input);
+      const bareResult = await searchBareIdentifier(ctx, input, capture?.qualifiers);
       if (bareResult) return bareResult;
       return bareSearchNotFound(input);
     }
 
     // Nothing matched (or invalid explicit SecID) — let the resolver produce the error message.
     const parsed = parseSecID(input, {});
+    parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
     return resolve(parsed, {});
   }
 
@@ -105,6 +127,7 @@ export async function resolveFromKV(
   if (!typeIndex) {
     // Type exists in grammar but no data in KV — return not_found
     const parsed = parseSecID(input, {});
+    parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
     return resolve(parsed, {});
   }
 
@@ -113,6 +136,7 @@ export async function resolveFromKV(
 
   // 4. Parse
   const parsed = parseSecID(input, minimalRegistry);
+  parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
 
   // Type-only query — return type metadata from TypeIndex directly
   // (avoids fetching all 502+ disclosure namespaces just to list them)
@@ -455,10 +479,17 @@ function buildPartialRegistry(
  */
 async function searchBareIdentifier(
   ctx: RegistryContext,
-  input: string
+  input: string,
+  extraQualifiers?: Record<string, string>
 ): Promise<ResolveResponse | null> {
-  const trimmed = input.trim();
-  if (!trimmed || trimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
+  const rawTrimmed = input.trim();
+  if (!rawTrimmed || rawTrimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
+
+  const qIdx = rawTrimmed.indexOf("?");
+  const trimmed = qIdx === -1 ? rawTrimmed : rawTrimmed.slice(0, qIdx).trim();
+  const inlineQualifiers = qIdx === -1 ? null : parseQualifiers(rawTrimmed.slice(qIdx + 1));
+  const qualifiers = mergeQualifiers(inlineQualifiers, extraQualifiers);
+  if (!trimmed) return null;
 
   // Single KV read: combined index across all types
   const globalIndex = await ctx.getGlobalIndex();
@@ -527,7 +558,7 @@ async function searchBareIdentifier(
       version: null,
       subpath: null,
       itemVersion: null,
-      qualifiers: null,
+      qualifiers,
     };
     const nsMap = await ctx.getNamespaces(type, [namespace]);
     const registry = buildPartialRegistry(type, nsMap);
@@ -545,7 +576,7 @@ async function searchBareIdentifier(
       version: null,
       subpath: null,
       itemVersion: null,
-      qualifiers: null,
+      qualifiers,
     };
     const nsMap = await ctx.getNamespaces(type, [...namespaces]);
     const registry = buildPartialRegistry(type, nsMap);
@@ -565,10 +596,29 @@ async function searchBareIdentifier(
     }
   }
 
-  if (allResults.length === 0) return null;
+  const filteredResults = qualifiers ? applyQualifierFilters(allResults, qualifiers) : allResults;
+  if (!filteredResults || filteredResults.length === 0) {
+    if (qualifiers) {
+      if (allResults.length > 0) {
+        return qualifierNotFoundResponse(input, allResults, qualifiers);
+      }
+      const qualifierMiss = resolveResults.find(
+        (r) => r.status === "not_found" && r.message && !r.message.startsWith("No results found for ")
+      );
+      if (qualifierMiss) {
+        return {
+          secid_query: input,
+          status: "not_found",
+          results: [],
+          message: qualifierMiss.message,
+        };
+      }
+    }
+    return null;
+  }
 
   // Sort: ResolutionResults first (by weight desc), then RegistryResults
-  allResults.sort((a, b) => {
+  filteredResults.sort((a, b) => {
     const aIsRes = isResolutionResult(a);
     const bIsRes = isResolutionResult(b);
     if (aIsRes && bIsRes) return b.weight - a.weight;
@@ -580,6 +630,6 @@ async function searchBareIdentifier(
   return {
     secid_query: input,
     status: "found",
-    results: allResults,
+    results: filteredResults,
   };
 }

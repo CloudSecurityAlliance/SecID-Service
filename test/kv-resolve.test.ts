@@ -247,4 +247,39 @@ describe("resolveFromKV", () => {
     const bundledUrl = (bundledResult.results[0] as { url?: string }).url;
     expect(kvUrl).toBe(bundledUrl);
   });
+
+  it("filters cross-source search in KV with ?parsability=structured (#55)", async () => {
+    const result = await resolveFromKV(
+      env.secid_REGISTRY,
+      "secid:advisory/CVE-2026-0019?parsability=structured"
+    );
+    expect(result.status).toBe("found");
+    expect(result.results.length).toBeGreaterThan(0);
+    for (const r of result.results) {
+      expect("url" in r).toBe(true);
+      expect((r as { parsability?: string }).parsability).toBe("structured");
+    }
+  });
+
+  it("filters bare identifier search with ?parsability=structured (#55)", async () => {
+    const result = await resolveFromKV(
+      env.secid_REGISTRY,
+      "CVE-2026-0019?parsability=structured"
+    );
+    expect(result.status).toBe("found");
+    expect(result.results.length).toBeGreaterThan(0);
+    for (const r of result.results) {
+      expect("url" in r).toBe(true);
+      expect((r as { parsability?: string }).parsability).toBe("structured");
+    }
+  });
+
+  it("returns qualifier not_found message on bare identifier search when qualifier removes all results (#55)", async () => {
+    const result = await resolveFromKV(
+      env.secid_REGISTRY,
+      "CVE-2026-0019?parsability=nonexistent"
+    );
+    expect(result.status).toBe("not_found");
+    expect(result.message).toContain('No results with parsability "nonexistent"');
+  });
 });

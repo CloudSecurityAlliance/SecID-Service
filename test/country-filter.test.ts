@@ -58,6 +58,13 @@ describe("country filter", () => {
     expect(namespacesOf(body).map((n) => n.namespace)).toEqual(["bsi.bund.de"]);
   });
 
+  it("accepts the type-only + inline qualifier form without wildcard", async () => {
+    const body = await get(
+      "/api/v1/resolve?secid=" + encodeURIComponent("secid:control?country=DE")
+    );
+    expect(namespacesOf(body).map((n) => n.namespace)).toEqual(["bsi.bund.de"]);
+  });
+
   it("lists every namespace for a bare wildcard", async () => {
     const body = await get("/api/v1/resolve?secid=" + encodeURIComponent("secid:control/*"));
     expect(namespacesOf(body)).toHaveLength(4);
