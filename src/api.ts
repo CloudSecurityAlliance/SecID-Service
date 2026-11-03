@@ -29,22 +29,37 @@ const MAX_KV_VALUE_BYTES = 25 * 1024 * 1024; // 25 MiB (Cloudflare KV max value 
 class MalformedQualifierError extends Error {}
 
 function qualifierFromSecID(secid: string, key: string): string | null {
-  const q = secid.split("?").slice(1).join("?");
-  if (!q) return null;
-  for (const pair of q.split("&")) {
-    const [k, v] = pair.split("=");
-    if (k === key && v) {
-      // decodeURIComponent throws URIError on input like "%ZZ". That is a bad
-      // request, not an internal failure: it must not surface as a 500 or be
-      // written to the observability KV as an error record.
-      try {
-        return decodeURIComponent(v);
-      } catch {
-        throw new MalformedQualifierError(`Malformed percent-encoding in qualifier "${key}".`);
+  const hashIdx = secid.indexOf("#");
+  const head = hashIdx !== -1 ? secid.slice(0, hashIdx) : secid;
+  const fragment = hashIdx !== -1 ? secid.slice(hashIdx + 1) : "";
+  const segments: string[] = [];
+  const headQ = head.indexOf("?");
+  if (headQ !== -1) segments.push(head.slice(headQ + 1));
+  const fragQ = fragment.indexOf("?");
+  if (fragQ !== -1) segments.push(fragment.slice(fragQ + 1));
+  if (segments.length === 0) return null;
+
+  const target = key.toLowerCase();
+  let matched: string | null = null;
+  for (const seg of segments) {
+    for (const pair of seg.split("&")) {
+      const eqIdx = pair.indexOf("=");
+      if (eqIdx === -1) continue;
+      const k = pair.slice(0, eqIdx).toLowerCase();
+      const v = pair.slice(eqIdx + 1);
+      if (k === target && v) {
+        // decodeURIComponent throws URIError on input like "%ZZ". That is a bad
+        // request, not an internal failure: it must not surface as a 500 or be
+        // written to the observability KV as an error record.
+        try {
+          matched = decodeURIComponent(v);
+        } catch {
+          throw new MalformedQualifierError(`Malformed percent-encoding in qualifier "${key}".`);
+        }
       }
     }
   }
-  return null;
+  return matched;
 }
 
 export async function handleTypes(c: Context<AppEnv>): Promise<Response> {
@@ -143,23 +158,20 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
         message: "Registry KV not configured.",
       });
     }
-    // Merge top-level resolution qualifier query params (?parsability=, ?content_type=, ?lang=)
-    // when not already present inside the SecID string. This supports both:
-    //   1. Documented REST query parameters: ?secid=...&parsability=structured&content_type=application/json
-    //   2. Unencoded '&' after a SecID qualifier: ?secid=...?parsability=structured&content_type=application/json
+    // Pass top-level resolution qualifier query params (?parsability=, ?content_type=, ?lang=)
+    // structurally into resolveQuery. Inline SecID qualifiers take precedence over
+    // top-level HTTP query params inside mergeQualifiers().
     const resolutionQualifiers = ["parsability", "content_type", "lang"] as const;
-    const extraQualifiers: string[] = [];
+    const extraQualifiers: Record<string, string> = {};
+    let extraLen = 0;
     for (const key of resolutionQualifiers) {
       const paramVal = c.req.query(key);
-      if (paramVal && !qualifierFromSecID(decoded, key)) {
-        extraQualifiers.push(`${key}=${paramVal}`);
+      if (paramVal) {
+        extraLen += key.length + paramVal.length + 2;
+        extraQualifiers[key] = paramVal;
       }
     }
-    const effectiveQuery =
-      extraQualifiers.length > 0
-        ? `${decoded}${decoded.includes("?") ? "&" : "?"}${extraQualifiers.join("&")}`
-        : decoded;
-    if (effectiveQuery.length > MAX_SECID_QUERY_CHARS) {
+    if (decoded.length + extraLen > MAX_SECID_QUERY_CHARS) {
       return c.json({
         secid_query: decoded.slice(0, MAX_SECID_QUERY_CHARS),
         status: "error",
@@ -168,11 +180,11 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       });
     }
 
-    const result = await resolveQuery(kv, effectiveQuery, {
+    const result = await resolveQuery(kv, decoded, {
       demand: c.env.secid_DEMAND,
       channel: "rest",
+      qualifiers: extraQualifiers,
     });
-    result.secid_query = decoded;
 
     // Optional listing filters. Two response shapes need handling:
     //   1. Type-only query (e.g., secid:methodology) returns a single wrapper

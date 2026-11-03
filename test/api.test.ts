@@ -314,5 +314,60 @@ describe("REST API", () => {
         expect(r.content_type).toBe("application/json");
       }
     });
+
+    it("does not corrupt subpath when source-level qualifier precedes # and top-level filter is added", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:regulation/europa.eu/gdpr%3Fcontent_type%3Dtext/html%23art-32&lang=de"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: Array<{ url?: string; lang?: string; content_type?: string }>;
+      };
+      expect(body.status).toBe("found");
+      expect(body.results[0].url).toContain("/DE/");
+      expect(body.results[0].lang).toBe("de");
+      expect(body.results[0].content_type).toBe("text/html");
+    });
+
+    it("preserves inline qualifier precedence over top-level params even with source-level qualifiers or uppercase keys", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve%3Flang%3Den%23CVE-2026-0019%3FPARSABILITY%3Dstructured&parsability=scraped"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: Array<{ parsability?: string }>;
+      };
+      expect(body.status).toBe("found");
+      expect(body.results.length).toBe(2);
+      for (const r of body.results) {
+        expect(r.parsability).toBe("structured");
+      }
+    });
+
+    it("prevents top-level parameter pollution from injecting or overriding other qualifiers", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2026-0019%3Fparsability%3Dstructured&content_type=text/html%26parsability%3Dscraped"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: unknown[];
+        message?: string;
+      };
+      expect(body.status).toBe("not_found");
+      expect(body.results).toEqual([]);
+      expect(body.message).toContain('No results with content_type "text/html&parsability=scraped"');
+    });
+
+    it("does not misparse MIME-type slashes on type-only queries with content_type", async () => {
+      const res = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory&content_type=application/json"
+      );
+      const body = (await res.json()) as {
+        status: string;
+        results: Array<{ secid: string }>;
+      };
+      expect(body.status).toBe("found");
+      expect(body.results[0].secid).toBe("secid:advisory");
+    });
   });
 });

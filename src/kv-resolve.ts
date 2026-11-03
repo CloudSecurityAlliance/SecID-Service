@@ -46,10 +46,24 @@ export interface MissCapture {
   channel?: DemandChannel;
   feedbackKv?: KVNamespace;
   /**
+   * Optional top-level HTTP query qualifiers (e.g., ?parsability=structured on
+   * /api/v1/resolve). Merged into parsed.qualifiers with inline SecID qualifiers
+   * taking precedence.
+   */
+  qualifiers?: Record<string, string>;
+  /**
    * Internal to resolveQuery: when set, misses are collected here instead of
    * written, so that only the attempt whose result is returned is recorded.
    */
   pendingMisses?: DemandMiss[];
+}
+
+function mergeQualifiers(
+  inline: Record<string, string> | null,
+  extra?: Record<string, string>
+): Record<string, string> | null {
+  if (!extra || Object.keys(extra).length === 0) return inline;
+  return { ...extra, ...(inline ?? {}) };
 }
 
 export async function resolveFromKV(
@@ -97,13 +111,14 @@ export async function resolveFromKV(
     //       the resolver's invalid-type error path.
     const hasSecidPrefix = /^secid:/i.test(input.trimStart());
     if (!hasSecidPrefix && input.trim()) {
-      const bareResult = await searchBareIdentifier(ctx, input);
+      const bareResult = await searchBareIdentifier(ctx, input, capture?.qualifiers);
       if (bareResult) return bareResult;
       return bareSearchNotFound(input);
     }
 
     // Nothing matched (or invalid explicit SecID) — let the resolver produce the error message.
     const parsed = parseSecID(input, {});
+    parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
     return resolve(parsed, {});
   }
 
@@ -112,6 +127,7 @@ export async function resolveFromKV(
   if (!typeIndex) {
     // Type exists in grammar but no data in KV — return not_found
     const parsed = parseSecID(input, {});
+    parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
     return resolve(parsed, {});
   }
 
@@ -120,6 +136,7 @@ export async function resolveFromKV(
 
   // 4. Parse
   const parsed = parseSecID(input, minimalRegistry);
+  parsed.qualifiers = mergeQualifiers(parsed.qualifiers, capture?.qualifiers);
 
   // Type-only query — return type metadata from TypeIndex directly
   // (avoids fetching all 502+ disclosure namespaces just to list them)
@@ -462,14 +479,16 @@ function buildPartialRegistry(
  */
 async function searchBareIdentifier(
   ctx: RegistryContext,
-  input: string
+  input: string,
+  extraQualifiers?: Record<string, string>
 ): Promise<ResolveResponse | null> {
   const rawTrimmed = input.trim();
   if (!rawTrimmed || rawTrimmed.length > MAX_REGEX_INPUT_CHARS) return null; // ReDoS bound
 
   const qIdx = rawTrimmed.indexOf("?");
   const trimmed = qIdx === -1 ? rawTrimmed : rawTrimmed.slice(0, qIdx).trim();
-  const qualifiers = qIdx === -1 ? null : parseQualifiers(rawTrimmed.slice(qIdx + 1));
+  const inlineQualifiers = qIdx === -1 ? null : parseQualifiers(rawTrimmed.slice(qIdx + 1));
+  const qualifiers = mergeQualifiers(inlineQualifiers, extraQualifiers);
   if (!trimmed) return null;
 
   // Single KV read: combined index across all types

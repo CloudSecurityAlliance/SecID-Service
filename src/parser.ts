@@ -12,10 +12,10 @@ export function extractSecIDType(input: string): SecIDType | null {
   if (!remaining) return null;
   const hashIdx = remaining.indexOf("#");
   const head = hashIdx !== -1 ? remaining.slice(0, hashIdx) : remaining;
-  const firstSlash = head.indexOf("/");
-  const rawCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
-  const qIdx = rawCandidate.indexOf("?");
-  const candidate = (qIdx === -1 ? rawCandidate : rawCandidate.slice(0, qIdx)).toLowerCase();
+  const qIdx = head.indexOf("?");
+  const pathPart = qIdx !== -1 ? head.slice(0, qIdx) : head;
+  const firstSlash = pathPart.indexOf("/");
+  const candidate = (firstSlash === -1 ? pathPart : pathPart.slice(0, firstSlash)).toLowerCase();
   return SECID_TYPES.includes(candidate as SecIDType) ? (candidate as SecIDType) : null;
 }
 
@@ -76,19 +76,23 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
     head = remaining;
   }
 
+  // Strip source-level ?qualifiers from head before splitting path segments
+  // (e.g., ?content_type=application/json contains a '/' that must not be
+  // treated as a path separator).
+  let sourceQualifiers: Record<string, string> | null = null;
+  const headQIdx = head.indexOf("?");
+  if (headQIdx !== -1) {
+    sourceQualifiers = parseQualifiers(head.slice(headQIdx + 1));
+    head = head.slice(0, headQIdx);
+  }
+
   if (!head) {
     return result;
   }
 
   // 3. Extract type (first segment before /)
   const firstSlash = head.indexOf("/");
-  let typeCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
-  let typeQualifiers: Record<string, string> | null = null;
-  const typeQIdx = typeCandidate.indexOf("?");
-  if (typeQIdx !== -1) {
-    typeQualifiers = parseQualifiers(typeCandidate.slice(typeQIdx + 1));
-    typeCandidate = typeCandidate.slice(0, typeQIdx);
-  }
+  const typeCandidate = firstSlash === -1 ? head : head.slice(0, firstSlash);
   const typeLower = typeCandidate.toLowerCase();
 
   if (!SECID_TYPES.includes(typeLower as SecIDType)) {
@@ -100,23 +104,18 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
 
   // Nothing after the type?
   if (firstSlash === -1) {
-    if (typeQualifiers || itemQualifiers) {
-      result.qualifiers = { ...typeQualifiers, ...itemQualifiers };
+    if (sourceQualifiers || itemQualifiers) {
+      result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
     }
     return result;
   }
 
   remaining = head.slice(firstSlash + 1);
   if (!remaining) {
+    if (sourceQualifiers || itemQualifiers) {
+      result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
+    }
     return result;
-  }
-
-  // Strip source-level ?qualifiers before namespace resolution
-  let sourceQualifiers: Record<string, string> | null = null;
-  const headQIdx = remaining.indexOf("?");
-  if (headQIdx !== -1) {
-    sourceQualifiers = parseQualifiers(remaining.slice(headQIdx + 1));
-    remaining = remaining.slice(0, headQIdx);
   }
 
   // 4. Namespace resolution (shortest-to-longest matching)
@@ -165,8 +164,8 @@ export function parseSecID(input: string, registry: Registry): ParsedSecID {
   }
 
   // Merge qualifiers (item-level takes precedence over source-level)
-  if (typeQualifiers || sourceQualifiers || itemQualifiers) {
-    result.qualifiers = { ...typeQualifiers, ...sourceQualifiers, ...itemQualifiers };
+  if (sourceQualifiers || itemQualifiers) {
+    result.qualifiers = { ...sourceQualifiers, ...itemQualifiers };
   }
 
   return result;
