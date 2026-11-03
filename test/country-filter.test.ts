@@ -20,6 +20,17 @@ beforeAll(async () => {
     child_index: [],
   } as unknown as TypeIndex;
   await env.secid_REGISTRY.put("secid:control", JSON.stringify(index));
+  await env.secid_REGISTRY.put(
+    "secid:control/ismap.go.jp",
+    JSON.stringify({
+      namespace: "ismap.go.jp",
+      type: "control",
+      official_name: "ISMAP",
+      common_name: "ISMAP",
+      tags: { country: ["JP"] },
+      match_nodes: [],
+    })
+  );
 });
 
 async function get(url: string) {
@@ -123,5 +134,15 @@ describe("country filter", () => {
       total_before_filter: 4,
     });
     expect(body.message).toBe('No namespaces with subtype "glossary" and country "JP" found in this type.');
+  });
+
+  it("preserves filter metadata on an empty namespace source listing (#60)", async () => {
+    const body = await get("/api/v1/resolve?secid=secid:control/ismap.go.jp&country=JP");
+    expect(body.status).toBe("found");
+    expect(body.results).toEqual([]);
+    expect(body.filter).toEqual({
+      country: "JP",
+      total_before_filter: 0,
+    });
   });
 });

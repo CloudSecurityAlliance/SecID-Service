@@ -236,6 +236,22 @@ describe("REST API", () => {
       expect(sourceBody.status).toBe("found");
       expect(sourceBody.results).toHaveLength(1);
       expect(sourceBody.filter).toBeUndefined();
+
+      // Empty namespace source listing (0 match_nodes) still reports filter metadata
+      const emptyNsRes = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:entity/360.cn&country=CN"
+      );
+      const emptyNsBody = (await emptyNsRes.json()) as {
+        status: string;
+        results: unknown[];
+        filter?: { country?: string; total_before_filter?: number };
+      };
+      if (emptyNsBody.status === "found" && emptyNsBody.results.length === 0) {
+        expect(emptyNsBody.filter).toEqual({
+          country: "CN",
+          total_before_filter: 0,
+        });
+      }
     });
   });
 

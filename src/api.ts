@@ -241,11 +241,12 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
         });
       }
 
-      // Per-entry listings (listNamespaces, listSources) always carry a subtypes
-      // array on each result's data. Item resolutions and Level 3 source
-      // descriptions do not, so they pass through untouched.
+      // Per-entry listings (listNamespaces, listSources) have status "found" and
+      // carry a subtypes array on each result's data (or have zero entries when a
+      // namespace has no match_nodes). Item resolutions, Level 3 source
+      // descriptions, and non-found responses pass through untouched.
       const isPerEntryListing =
-        result.results.length > 0 &&
+        result.status === "found" &&
         result.results.every((r) => Array.isArray((r as { data?: { subtypes?: unknown } }).data?.subtypes));
 
       if (isPerEntryListing) {
