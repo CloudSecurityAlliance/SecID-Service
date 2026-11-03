@@ -13,8 +13,8 @@ beforeAll(async () => {
     namespace_count: 4,
     namespaces: [
       { namespace: "ismap.go.jp", official_name: "ISMAP", common_name: "ISMAP", source_count: 1, subtypes: [], country: ["JP"] },
-      { namespace: "ipa.go.jp", official_name: "IPA", common_name: null, source_count: 1, subtypes: [], country: ["JP"] },
-      { namespace: "bsi.bund.de", official_name: "BSI", common_name: null, source_count: 1, subtypes: [], country: ["DE"] },
+      { namespace: "ipa.go.jp", official_name: "IPA", common_name: null, source_count: 1, subtypes: ["strategy"], country: ["JP"] },
+      { namespace: "bsi.bund.de", official_name: "BSI", common_name: null, source_count: 1, subtypes: ["strategy"], country: ["DE"] },
       { namespace: "nist.gov", official_name: "NIST", common_name: "NIST", source_count: 1, subtypes: ["glossary"] },
     ],
     child_index: [],
@@ -90,5 +90,38 @@ describe("country filter", () => {
   it("leaves the existing subtype filter working", async () => {
     const ns = namespacesOf(await get("/api/v1/resolve?secid=secid:control&subtype=glossary"));
     expect(ns.map((n) => n.namespace)).toEqual(["nist.gov"]);
+  });
+
+  it("composes subtype and country filters via query params (#59)", async () => {
+    const body = await get("/api/v1/resolve?secid=secid:control&subtype=strategy&country=JP");
+    expect(namespacesOf(body).map((n) => n.namespace)).toEqual(["ipa.go.jp"]);
+    expect(body.filter).toEqual({
+      subtype: "strategy",
+      country: "JP",
+      total_before_filter: 4,
+    });
+  });
+
+  it("composes subtype and country filters via inline SecID qualifiers (#59)", async () => {
+    const body = await get(
+      "/api/v1/resolve?secid=" + encodeURIComponent("secid:control?subtype=strategy&country=de")
+    );
+    expect(namespacesOf(body).map((n) => n.namespace)).toEqual(["bsi.bund.de"]);
+    expect(body.filter).toEqual({
+      subtype: "strategy",
+      country: "de",
+      total_before_filter: 4,
+    });
+  });
+
+  it("explains when combined subtype and country filters match nothing (#59)", async () => {
+    const body = await get("/api/v1/resolve?secid=secid:control&subtype=glossary&country=JP");
+    expect(namespacesOf(body)).toHaveLength(0);
+    expect(body.filter).toEqual({
+      subtype: "glossary",
+      country: "JP",
+      total_before_filter: 4,
+    });
+    expect(body.message).toBe('No namespaces with subtype "glossary" and country "JP" found in this type.');
   });
 });

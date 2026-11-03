@@ -156,6 +156,87 @@ describe("REST API", () => {
       expect(body.filter?.subtype).toBe("does-not-exist-xyzzy");
       expect(body.message).toContain("does-not-exist-xyzzy");
     });
+
+    it("includes subtypes on namespace source listings, supports /* wildcard, and filters by ?subtype= (#60)", async () => {
+      const full = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology/first.org"
+      );
+      const fullBody = (await full.json()) as {
+        status: string;
+        results: Array<{ secid: string; data: { subtypes?: string[]; child_count?: number } }>;
+      };
+      expect(fullBody.status).toBe("found");
+      expect(fullBody.results.length).toBeGreaterThan(0);
+      for (const r of fullBody.results) {
+        expect(Array.isArray(r.data.subtypes)).toBe(true);
+      }
+
+      // Namespace /* wildcard returns the same source listing with status "found"
+      const wildcard = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=" + encodeURIComponent("secid:methodology/first.org/*")
+      );
+      const wildcardBody = (await wildcard.json()) as typeof fullBody;
+      expect(wildcardBody.status).toBe("found");
+      expect(wildcardBody.results.map((r) => r.secid)).toEqual(fullBody.results.map((r) => r.secid));
+
+      // Filtering a namespace source listing by ?subtype=scoring returns matching sources
+      const filtered = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology/first.org&subtype=scoring"
+      );
+      const filteredBody = (await filtered.json()) as {
+        status: string;
+        results: Array<{ secid: string; data: { subtypes?: string[] } }>;
+        filter?: { subtype?: string; total_before_filter?: number };
+      };
+      expect(filteredBody.status).toBe("found");
+      expect(filteredBody.filter).toEqual({
+        subtype: "scoring",
+        total_before_filter: fullBody.results.length,
+      });
+      expect(filteredBody.results.length).toBeGreaterThan(0);
+      for (const r of filteredBody.results) {
+        expect(r.data.subtypes).toContain("scoring");
+      }
+
+      // Filtering a namespace source listing by an unmatched subtype returns [] with a clear source message
+      const empty = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:methodology/first.org&subtype=does-not-exist-xyzzy"
+      );
+      const emptyBody = (await empty.json()) as {
+        results: unknown[];
+        filter?: { subtype?: string; total_before_filter?: number };
+        message?: string;
+      };
+      expect(emptyBody.results).toHaveLength(0);
+      expect(emptyBody.filter?.subtype).toBe("does-not-exist-xyzzy");
+      expect(emptyBody.message).toBe('No sources with subtype "does-not-exist-xyzzy" found in this namespace.');
+    });
+
+    it("leaves item resolutions and source descriptions untouched when listing filters are present (#59)", async () => {
+      const itemRes = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve%23CVE-2021-44228&subtype=scoring&country=ZZ"
+      );
+      const itemBody = (await itemRes.json()) as {
+        status: string;
+        results: Array<{ url?: string }>;
+        filter?: unknown;
+      };
+      expect(itemBody.status).toBe("found");
+      expect(itemBody.results.length).toBeGreaterThan(0);
+      expect(itemBody.filter).toBeUndefined();
+
+      const sourceRes = await SELF.fetch(
+        "https://test.local/api/v1/resolve?secid=secid:advisory/mitre.org/cve&subtype=scoring&country=ZZ"
+      );
+      const sourceBody = (await sourceRes.json()) as {
+        status: string;
+        results: Array<{ secid: string; data?: { urls?: unknown[] } }>;
+        filter?: unknown;
+      };
+      expect(sourceBody.status).toBe("found");
+      expect(sourceBody.results).toHaveLength(1);
+      expect(sourceBody.filter).toBeUndefined();
+    });
   });
 
   describe("lang qualifier", () => {
