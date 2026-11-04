@@ -224,6 +224,20 @@ describe("progressive resolution", () => {
     expect(data).toHaveProperty("official_name");
     expect(data).toHaveProperty("urls");
   });
+
+  it("type+namespace with empty match_nodes returns namespace-level entity metadata (#11)", () => {
+    const r = resolveSecID("secid:entity/uaepass.ae");
+    expect(r.status).toBe("found");
+    expect(r.results.length).toBe(1);
+    const entry = r.results[0] as RegistryResult;
+    expect(entry.secid).toBe("secid:entity/uaepass.ae");
+    expect(entry.data.official_name).toBe("UAE Pass");
+    expect(entry.data.common_name).toBe("UAE Pass");
+    expect(entry.data.source_count).toBe(0);
+    expect(Array.isArray(entry.data.urls)).toBe(true);
+    expect((entry.data.urls as Array<{ url: string }>).length).toBeGreaterThan(0);
+    expect(entry.data).toHaveProperty("notes");
+  });
 });
 
 // ── Manual Tests: RHSA (Colon in ID) ──

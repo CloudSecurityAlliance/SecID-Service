@@ -242,9 +242,26 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       }
 
       // Per-entry listings (listNamespaces, listSources) have status "found" and
-      // carry a subtypes array on each result's data (or have zero entries when a
-      // namespace has no match_nodes). Item resolutions, Level 3 source
-      // descriptions, and non-found responses pass through untouched.
+      // carry a subtypes array on each result's data. When a namespace has zero
+      // match_nodes (#11), listSources returns a single namespace-metadata fallback
+      // result with source_count === 0 and no subtypes array; filtering sources on
+      // that namespace yields zero matching sources with total_before_filter: 0 (#60).
+      // Item resolutions, Level 3 source descriptions, and non-found responses pass
+      // through untouched.
+      const isEmptyNamespaceListing =
+        result.status === "found" &&
+        result.results.length === 1 &&
+        (result.results[0] as { data?: { source_count?: unknown; subtypes?: unknown } }).data?.source_count === 0 &&
+        !Array.isArray((result.results[0] as { data?: { subtypes?: unknown } }).data?.subtypes);
+
+      if (isEmptyNamespaceListing) {
+        return c.json({
+          ...result,
+          results: [],
+          filter: { ...filterMeta, total_before_filter: 0 },
+        });
+      }
+
       const isPerEntryListing =
         result.status === "found" &&
         result.results.every((r) => Array.isArray((r as { data?: { subtypes?: unknown } }).data?.subtypes));

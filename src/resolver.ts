@@ -140,6 +140,25 @@ function listSources(
   ns: RegistryNamespace
 ): ResolveResponse {
   const country = (ns as unknown as { tags?: { country?: unknown } }).tags?.country;
+  if (ns.match_nodes.length === 0) {
+    return response(query, "found", [
+      {
+        secid: `secid:${parsed.type}/${parsed.namespace}`,
+        data: {
+          official_name: ns.official_name,
+          common_name: ns.common_name ?? null,
+          alternate_names: ns.alternate_names ?? null,
+          notes: ns.notes ?? null,
+          urls: ns.urls ?? [],
+          wikidata: ns.wikidata ?? null,
+          wikipedia: ns.wikipedia ?? null,
+          source_count: 0,
+          ...(Array.isArray(country) && country.length ? { country } : {}),
+        },
+      },
+    ]);
+  }
+
   const results: RegistryResult[] = ns.match_nodes.map((node) => {
     const nameSlug = extractNameSlug(node);
     const subtypes = new Set<string>();

@@ -1,8 +1,10 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import {
   recordFeedback,
+  resolveFeedback,
   resetFeedbackLimits,
   FeedbackRateLimitedError,
+  RESOLVED_FEEDBACK_TTL_SECONDS,
   type FeedbackRecord,
 } from "../src/feedback";
 
@@ -10,16 +12,18 @@ beforeEach(() => resetFeedbackLimits());
 
 const UUID_V7_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
 
-// Minimal in-memory KV stand-in (recordFeedback only uses put).
+// Minimal in-memory KV stand-in capturing values and KVPutOptions.
 function makeKV() {
   const store = new Map<string, string>();
+  const putOptions = new Map<string, KVNamespacePutOptions | undefined>();
   const kv = {
     get: async (k: string) => store.get(k) ?? null,
-    put: async (k: string, v: string) => {
+    put: async (k: string, v: string, opts?: KVNamespacePutOptions) => {
       store.set(k, v);
+      putOptions.set(k, opts);
     },
   };
-  return { kv: kv as unknown as KVNamespace, store };
+  return { kv: kv as unknown as KVNamespace, store, putOptions };
 }
 
 describe("recordFeedback", () => {
@@ -76,5 +80,44 @@ describe("recordFeedback", () => {
     });
     expect(rec.untrusted.suggested_urls).toEqual([]);
     expect(rec.id).toMatch(UUID_V7_REGEX);
+  });
+
+  it("writes open feedback without expirationTtl so untriaged items do not expire", async () => {
+    const { kv, putOptions } = makeKV();
+    const rec = await recordFeedback(kv, {
+      category: "missing-namespace",
+      secid: "secid:entity/example.org",
+      message: "Missing organization",
+    });
+    expect(putOptions.get(`feedback:${rec.id}`)).toBeUndefined();
+  });
+});
+
+describe("resolveFeedback", () => {
+  it("marks an existing feedback record resolved and sets a 30-day expirationTtl", async () => {
+    const { kv, store, putOptions } = makeKV();
+    const rec = await recordFeedback(kv, {
+      category: "correction",
+      secid: "secid:advisory/example.com/sec",
+      message: "URL moved",
+    });
+
+    const resolved = await resolveFeedback(kv, rec.id, "Fixed in SecID PR #233");
+    expect(resolved).not.toBeNull();
+    expect(resolved!.resolved_at).toBeDefined();
+    expect(resolved!.resolution_note).toBe("Fixed in SecID PR #233");
+    expect(putOptions.get(`feedback:${rec.id}`)).toEqual({
+      expirationTtl: RESOLVED_FEEDBACK_TTL_SECONDS,
+    });
+
+    const stored = JSON.parse(store.get(`feedback:${rec.id}`)!) as FeedbackRecord;
+    expect(stored.resolved_at).toBe(resolved!.resolved_at);
+    expect(stored.resolution_note).toBe("Fixed in SecID PR #233");
+  });
+
+  it("returns null when the feedback id does not exist", async () => {
+    const { kv } = makeKV();
+    const res = await resolveFeedback(kv, "nonexistent-id");
+    expect(res).toBeNull();
   });
 });

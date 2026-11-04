@@ -29,7 +29,9 @@ test.describe("MCP endpoint", () => {
     await client.connect(new StreamableHTTPClientTransport(new URL("/mcp", baseURL), { fetch: countingFetch }));
 
     const { tools } = await client.listTools();
-    expect(tools.map((t) => t.name)).toEqual(expect.arrayContaining(["resolve", "lookup", "describe"]));
+    expect(tools.map((t) => t.name)).toEqual(
+      expect.arrayContaining(["resolve", "lookup", "describe", "submit_feedback", "describe_changes"]),
+    );
 
     const result = await client.callTool({
       name: "resolve",
