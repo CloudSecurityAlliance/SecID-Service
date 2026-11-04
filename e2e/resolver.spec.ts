@@ -31,7 +31,7 @@ test.describe("Resolver", () => {
     },
     {
       label: "Cross-source",
-      secid: "secid:advisory/CVE-2024-1234",
+      secid: "secid:advisory/CVE-2023-44487",
       // Cross-source may return found or related depending on registry data
       status: /found|related/,
     },
