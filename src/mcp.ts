@@ -552,6 +552,8 @@ EXAMPLES:
     → Red Hat's CNA, CNA-LR, and Root programs with scopes and contacts
   lookup(type="capability", identifier="amazon.com/aws/s3")
     → S3 security capabilities (encryption, bucket policies, access logging)
+  lookup(type="entity", identifier="uaepass.ae")
+    → Namespace-level metadata (official_name, common_name, alternate_names, notes, urls, wikidata, wikipedia, source_count: 0)
 
 VULNERABILITY REPORTING USE CASE:
   "I found a vulnerability in X — who do I report it to?"

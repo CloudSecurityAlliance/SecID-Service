@@ -31,6 +31,13 @@ beforeAll(async () => {
       match_nodes: [],
     })
   );
+  await env.secid_REGISTRY.put(
+    "secid:*",
+    JSON.stringify({
+      child_index: [],
+      name_index: [{ type: "control", namespace: "ismap.go.jp", aliases: ["ismap"] }],
+    })
+  );
 });
 
 async function get(url: string) {
@@ -144,5 +151,14 @@ describe("country filter", () => {
       country: "JP",
       total_before_filter: 0,
     });
+  });
+
+  it("does not clear a typeScopedSearch identity result for a URL-less empty-match_nodes namespace", async () => {
+    const body = await get("/api/v1/resolve?secid=" + encodeURIComponent("secid:control/ISMAP") + "&country=JP");
+    expect(body.status).toBe("found");
+    expect(body.results).toHaveLength(1);
+    expect(body.results[0].secid).toBe("secid:control/ismap.go.jp");
+    expect(body.results[0].data?.weight).toBe(90);
+    expect(body.filter).toBeUndefined();
   });
 });

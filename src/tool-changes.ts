@@ -113,6 +113,13 @@ export const TOOL_CHANGE_LOG: readonly ToolChangeEntry[] = [
       "Namespace-level queries (secid:type/namespace) for namespaces with empty match_nodes now return the namespace's own metadata record instead of an empty results array (#11).",
   },
   {
+    timestamp: "2026-11-04T00:00:00Z",
+    tool: "lookup",
+    change_type: "updated",
+    summary:
+      "Namespace-level lookups (lookup(type, namespace)) for namespaces with empty match_nodes now return the namespace's own metadata record instead of an empty results array (#11).",
+  },
+  {
     timestamp: "2026-09-25T19:51:30Z",
     tool: "submit_feedback",
     change_type: "updated",

@@ -446,6 +446,18 @@ describe("qualifier filtering across cross-source and subpath resolution (#55)",
     expect(r.status).toBe("not_found");
     expect(r.message).toContain('No results with parsability "structured"');
   });
+
+  it("excludes URL-less RegistryResult notes when ?lang= is requested and reports unavailable language", () => {
+    const fr = resolveSecID("secid:regulation/recital-78?lang=fr");
+    expect(fr.status).toBe("found");
+    expect(fr.results.every((entry) => "url" in entry)).toBe(true);
+    expect((fr.results[0] as ResolutionResult).url).toContain("/FR/");
+
+    const xx = resolveSecID("secid:regulation/recital-78?lang=xx");
+    expect(xx.status).toBe("not_found");
+    expect(xx.results).toEqual([]);
+    expect(xx.message).toContain('Language "xx" not available');
+  });
 });
 
 describe("vendor-specific CVE resolution and structured API filtering (#218)", () => {

@@ -491,10 +491,11 @@ describe("MCP end-to-end flow", () => {
     const sinceResp = sinceBody as { result?: { content: Array<{ text: string }>; isError?: boolean } };
     const sinceData = JSON.parse(sinceResp.result!.content[0].text);
     expect(sinceData.since).toBe("2026-10-01T00:00:00Z");
-    expect(sinceData.changes.length).toBe(3);
+    expect(sinceData.changes.length).toBe(4);
     expect(sinceData.changes.map((c: { tool: string }) => c.tool).sort()).toEqual([
       "describe",
       "describe_changes",
+      "lookup",
       "resolve",
     ]);
 
@@ -517,18 +518,21 @@ describe("MCP end-to-end flow", () => {
     expect(badData.message).toContain("RFC 3339");
   });
 
-  it("describe returns namespace metadata for entity with empty match_nodes (#11)", async () => {
-    const { body } = await mcpCallTool("describe", {
-      secid: "secid:entity/uaepass.ae",
-    });
-    const resp = body as { result?: { content: Array<{ text: string }>; isError?: boolean } };
-    expect(resp.result?.isError ?? false).toBe(false);
-    const data = JSON.parse(resp.result!.content[0].text);
-    expect(data.status).toBe("found");
-    expect(data.results.length).toBe(1);
-    expect(data.results[0].secid).toBe("secid:entity/uaepass.ae");
-    expect(data.results[0].data.source_count).toBe(0);
-    expect(data.results[0].data.registry_text_untrusted.official_name).toBe("UAE Pass");
-    expect(data.results[0].data.registry_text_untrusted.common_name).toBe("UAE Pass");
+  it("describe and lookup return namespace metadata for entity with empty match_nodes (#11)", async () => {
+    for (const call of [
+      mcpCallTool("describe", { secid: "secid:entity/uaepass.ae" }),
+      mcpCallTool("lookup", { type: "entity", identifier: "uaepass.ae" }),
+    ]) {
+      const { body } = await call;
+      const resp = body as { result?: { content: Array<{ text: string }>; isError?: boolean } };
+      expect(resp.result?.isError ?? false).toBe(false);
+      const data = JSON.parse(resp.result!.content[0].text);
+      expect(data.status).toBe("found");
+      expect(data.results.length).toBe(1);
+      expect(data.results[0].secid).toBe("secid:entity/uaepass.ae");
+      expect(data.results[0].data.source_count).toBe(0);
+      expect(data.results[0].data.registry_text_untrusted.official_name).toBe("UAE Pass");
+      expect(data.results[0].data.registry_text_untrusted.common_name).toBe("UAE Pass");
+    }
   });
 });

@@ -244,15 +244,30 @@ export async function handleResolve(c: Context<AppEnv>): Promise<Response> {
       // Per-entry listings (listNamespaces, listSources) have status "found" and
       // carry a subtypes array on each result's data. When a namespace has zero
       // match_nodes (#11), listSources returns a single namespace-metadata fallback
-      // result with source_count === 0 and no subtypes array; filtering sources on
+      // result with source_count === 0, a urls array, no weight, and no subtypes
+      // array, and its secid matches the queried namespace; filtering sources on
       // that namespace yields zero matching sources with total_before_filter: 0 (#60).
-      // Item resolutions, Level 3 source descriptions, and non-found responses pass
-      // through untouched.
+      // Item resolutions, Level 3 source descriptions, typeScopedSearch identity
+      // matches, and non-found responses pass through untouched.
+      const firstResult = result.results[0] as
+        | { secid?: string; data?: { source_count?: unknown; subtypes?: unknown; urls?: unknown; weight?: unknown } }
+        | undefined;
+      const normalizedQueryTarget = decoded
+        .split("#")[0]
+        .split("?")[0]
+        .trim()
+        .replace(/^secid:/i, "")
+        .replace(/\/\*$/, "")
+        .toLowerCase();
+      const normalizedFirstSecid = (firstResult?.secid ?? "").replace(/^secid:/i, "").toLowerCase();
       const isEmptyNamespaceListing =
         result.status === "found" &&
         result.results.length === 1 &&
-        (result.results[0] as { data?: { source_count?: unknown; subtypes?: unknown } }).data?.source_count === 0 &&
-        !Array.isArray((result.results[0] as { data?: { subtypes?: unknown } }).data?.subtypes);
+        firstResult?.data?.source_count === 0 &&
+        !Array.isArray(firstResult?.data?.subtypes) &&
+        Array.isArray(firstResult?.data?.urls) &&
+        firstResult?.data?.weight === undefined &&
+        normalizedQueryTarget === normalizedFirstSecid;
 
       if (isEmptyNamespaceListing) {
         return c.json({
