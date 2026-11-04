@@ -66,4 +66,33 @@ test.describe("External Links", { tag: "@third-party" }, () => {
     const response = await page.request.get(href!);
     expect(response.ok()).toBe(true);
   });
+
+  test("Cross-source CVE result URLs lead to reachable vendor endpoints", async ({
+    page,
+  }) => {
+    await page
+      .locator("#resolver-input")
+      .fill("secid:advisory/CVE-2023-44487");
+    await page.locator('button[type="submit"]').click();
+    await expect(page.locator(".status-badge")).toBeVisible({
+      timeout: 15_000,
+    });
+
+    const expectedHosts = [
+      "cve.org",
+      "nvd.nist.gov",
+      "security-tracker.debian.org",
+      "access.redhat.com",
+    ];
+
+    for (const host of expectedHosts) {
+      const link = page.locator(`.result-item a[href*='${host}']`).first();
+      await expect(link).toBeVisible();
+      const href = await link.getAttribute("href");
+      expect(href).toContain(host);
+
+      const response = await page.request.get(href!);
+      expect(response.ok()).toBe(true);
+    }
+  });
 });
