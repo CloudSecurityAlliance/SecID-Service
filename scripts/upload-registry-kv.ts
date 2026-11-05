@@ -30,7 +30,7 @@ import { fileURLToPath } from "url";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { namespaceAliases } from "../src/identity";
-import { isOpenPattern } from "../src/resolver";
+import { extractNameSlug, isOpenPattern } from "../src/resolver";
 import type { GlobalChildIndexEntry } from "../src/types";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -74,6 +74,7 @@ interface MatchNodeRaw {
 interface ChildIndexEntry {
   namespace: string;
   name_slug: string;
+  open?: boolean;
   patterns: string[];
   description: string;
   weight: number;
@@ -132,21 +133,6 @@ function findJsonFiles(dir: string): string[] {
     }
   }
   return results;
-}
-
-// ── Name Slug Extraction ──
-
-function extractNameSlug(node: MatchNodeRaw): string {
-  const pat = node.patterns[0] ?? "";
-  const cleaned = pat
-    .replace(/^\(\?i\)/i, "")
-    .replace(/^\^/, "")
-    .replace(/\$$/, "")
-    .replace(/\\(.)/g, "$1");  // Unescape: \- → -, \. → .
-  if (/^[\w-]+$/.test(cleaned)) {
-    return cleaned.toLowerCase();
-  }
-  return node.description.toLowerCase().replace(/\s+/g, "-");
 }
 
 // ── Build KV Entries ──
@@ -269,10 +255,11 @@ function buildEntries(): BulkEntry[] {
           childIndex.push({
             namespace: ns,
             name_slug: nameSlug,
+            open: child.open_pattern === true || isOpenPattern(child.patterns),
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
-            has_url: !!child.data?.url,
+            has_url: !!(child.data?.url || child.data?.lookup_table),
           });
         }
       }
@@ -332,7 +319,7 @@ function buildEntries(): BulkEntry[] {
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
-            has_url: !!child.data?.url,
+            has_url: !!(child.data?.url || child.data?.lookup_table),
           });
         }
       }

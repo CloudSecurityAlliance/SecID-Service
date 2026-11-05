@@ -305,8 +305,8 @@ function matchVersionAlias(node: MatchNode, version: string): VersionAliasMatch 
  * plain literal (SecID spec ADR-015: a version node's patterns[0] is the canonical form).
  * `(?i)^1\.1\.1$` → "1.1.1".
  */
-function patternLiteral(pat: string): string | null {
-  const body = pat.replace(/^\(\?i\)/, "").replace(/^\^/, "").replace(/\$$/, "");
+export function patternLiteral(pat: string): string | null {
+  const body = pat.replace(/^\(\?i\)/i, "").replace(/^\^/, "").replace(/\$$/, "");
   let out = "";
   for (let i = 0; i < body.length; i++) {
     const ch = body[i];
@@ -331,7 +331,7 @@ function versionRedirect(
   canonical: ParsedSecID,
   node: MatchNode
 ): ResolveResponse {
-  const base = `secid:${canonical.type}/${canonical.namespace}/${extractNameSlug(node)}@${canonical.version}`;
+  const base = `secid:${canonical.type}/${canonical.namespace}/${extractNameSlug(node, canonical.name ?? undefined)}@${canonical.version}`;
   const target = canonical.subpath ? `${base}#${canonical.subpath}` : base;
   return response(
     query,
@@ -368,7 +368,7 @@ function describeVersions(node: MatchNode): string {
  * versions and where to report a missing release.
  */
 function versionNotFound(query: string, parsed: ParsedSecID, node: MatchNode): ResolveResponse {
-  const slug = extractNameSlug(node);
+  const slug = extractNameSlug(node, parsed.name ?? undefined);
   return response(
     query,
     "not_found",
@@ -436,7 +436,7 @@ function resolveVersionMismatch(
   const r = withVersion(null);
   if (listed.length > 0) {
     if (r.status === "found" || r.status === "corrected") r.status = "related";
-    const note = `Version "${version}" not found for ${extractNameSlug(node)}. Known versions: ${describeVersions(node)}. Showing the source without a version.`;
+    const note = `Version "${version}" not found for ${extractNameSlug(node, parsed.name ?? undefined)}. Known versions: ${describeVersions(node)}. Showing the source without a version.`;
     r.message = r.message ? `${note} ${r.message}` : note;
     return r;
   }
@@ -457,7 +457,7 @@ function versionRequiredMiss(
   parsed: ParsedSecID,
   node: MatchNode
 ): ResolveResponse {
-  const nameSlug = extractNameSlug(node);
+  const nameSlug = extractNameSlug(node, parsed.name ?? undefined);
   return response(
     query,
     "related",
@@ -498,7 +498,7 @@ function describeSource(
     }));
   }
 
-  const nameSlug = extractNameSlug(node);
+  const nameSlug = extractNameSlug(node, parsed.name ?? undefined);
   const secid = parsed.version
     ? `secid:${parsed.type}/${parsed.namespace}/${nameSlug}@${parsed.version}`
     : `secid:${parsed.type}/${parsed.namespace}/${nameSlug}`;
@@ -575,7 +575,7 @@ function resolveVersioned(
       unversioned_behavior: node.data.unversioned_behavior ?? null,
     };
 
-    const nameSlug = extractNameSlug(node);
+    const nameSlug = extractNameSlug(node, parsed.name ?? undefined);
     return response(
       query,
       "related",
@@ -599,7 +599,7 @@ function resolveVersioned(
 
   // No subpath — describe version
   if (!parsed.subpath) {
-    const nameSlug = extractNameSlug(node);
+    const nameSlug = extractNameSlug(node, parsed.name ?? undefined);
     const data: Record<string, unknown> = {
       official_name: versionChild.data.official_name ?? versionChild.description,
       urls: versionChild.data.urls ?? [],
@@ -682,12 +682,13 @@ function matchChildrenAndResolve(
       }
     }
 
-    const nameSlug = extractNameSlug(slugNode);
+    const nameSlug = extractNameSlug(slugNode, parsed.name ?? undefined);
     const secid = parsed.version
       ? `secid:${parsed.type}/${parsed.namespace}/${nameSlug}@${parsed.version}#${subpath}`
       : `secid:${parsed.type}/${parsed.namespace}/${nameSlug}#${subpath}`;
 
-    // Try to build a URL (parentNode has the notes for variable extraction)
+    // Try to build a URL (lookup_table takes precedence over url template;
+    // parentNode has the notes for variable extraction)
     const url = resolveChildUrl(child, subpath, parentNode, qualifiers);
 
     if (url) {
@@ -705,28 +706,15 @@ function matchChildrenAndResolve(
 
       results.push(res);
     } else if (child.data.lookup_table) {
-      // Lookup table: try direct key match
-      // Own-property check: a subpath like "constructor" must not resolve to
-      // an Object.prototype member.
-      const entry = Object.hasOwn(child.data.lookup_table, subpath)
-        ? child.data.lookup_table[subpath]
-        : undefined;
-      if (entry) {
-        const lookupUrl = typeof entry === "string" ? entry : entry.url;
-        const res: ResolutionResult = { secid, weight: child.weight, url: lookupUrl };
-        if (child.data.content_type) res.content_type = child.data.content_type;
-        addFormatMetadata(res, child.data);
-        results.push(res);
-      } else {
-        // Return the lookup_table as registry data
-        results.push({
-          secid,
-          data: {
-            description: child.description,
-            available_items: Object.keys(child.data.lookup_table),
-          },
-        } as RegistryResult);
-      }
+      // Child has a lookup_table (and no fallback url template), and subpath was
+      // not a key in lookup_table — return available_items as registry data.
+      results.push({
+        secid,
+        data: {
+          description: child.description,
+          available_items: Object.keys(child.data.lookup_table),
+        },
+      } as RegistryResult);
     } else {
       // No URL pattern — return as registry data
       results.push({
@@ -763,6 +751,16 @@ function resolveChildUrl(
   parentNode: MatchNode,
   qualifiers?: Record<string, string> | null
 ): string | null {
+  // Per REGISTRY-JSON-FORMAT.md (#177): if a node has both lookup_table and url,
+  // lookup_table takes priority for IDs it contains; url is the fallback for
+  // matching IDs not in the table. Own-property check avoids Object.prototype hits.
+  if (child.data.lookup_table && Object.hasOwn(child.data.lookup_table, subpath)) {
+    const entry = child.data.lookup_table[subpath];
+    if (entry) {
+      return typeof entry === "string" ? entry : entry.url;
+    }
+  }
+
   const urlTemplate = child.data.url;
   if (!urlTemplate) return null;
 
@@ -1059,7 +1057,7 @@ function typeScopedSearch(
       // (e.g., "cwe" matches the cwe source in weakness/mitre.org).
       // Return source-level info rather than a child resolution.
       if (nodeMatches(node, identifier, false)) {
-        const nameSlug = extractNameSlug(node);
+        const nameSlug = extractNameSlug(node, identifier);
         const secid = `secid:${parsed.type}/${nsKey}/${nameSlug}`;
         // Prefer source-level url; fall back to first namespace url; otherwise
         // emit a RegistryResult with description so the consumer at least gets
@@ -1256,9 +1254,20 @@ function isNodeOpen(node: MatchNode): boolean {
 }
 
 function nodeMatches(node: MatchNode, input: string, scoped: boolean): boolean {
+  const known = node.data?.known_values;
+  // A string[] known_values array has no descriptions — its sole role in the
+  // schema is to enumerate the closed set of valid identifiers (#190).
+  if (Array.isArray(known)) {
+    if (known.length > 0) {
+      return known.includes(input) && matchesAnyPattern(node.patterns, input);
+    }
+    if (isNodeOpen(node) && !scoped) return false;
+    return matchesAnyPattern(node.patterns, input);
+  }
   if (isNodeOpen(node)) {
-    const known = node.data?.known_values;
-    if (known) return Object.prototype.hasOwnProperty.call(known, input);
+    if (known && Object.keys(known).length > 0) {
+      return Object.hasOwn(known, input) && matchesAnyPattern(node.patterns, input);
+    }
     if (!scoped) return false;
   }
   return matchesAnyPattern(node.patterns, input);
@@ -1301,20 +1310,26 @@ export function toRegExp(pat: string): RegExp {
   return re;
 }
 
-function extractNameSlug(node: MatchNode): string {
-  // Extract a human-readable name from the first pattern
-  // Patterns like "(?i)^cve$" → "cve", "(?i)^cna\-tlr$" → "cna-tlr"
-  const pat = node.patterns[0] ?? "";
-  const cleaned = pat
-    .replace(/^\(\?i\)/i, "")
-    .replace(/^\^/, "")
-    .replace(/\$$/, "")
-    .replace(/\\(.)/g, "$1");  // Unescape: \- → -, \. → .
-  // If it's a simple literal (no regex meta), use it
-  if (/^[\w-]+$/.test(cleaned)) {
-    return cleaned.toLowerCase();
+export function extractNameSlug(
+  node: { patterns: string[]; description: string },
+  matchedName?: string
+): string {
+  // Extract a human-readable canonical name from the first pattern when it is a
+  // plain literal (e.g., "(?i)^cve$" → "cve", "(?i)^cna\-tlr$" → "cna-tlr",
+  // "(?i)^x\.805$" → "x.805"). Unescaped '.' is rejected by patternLiteral as a
+  // regex wildcard while escaped '\.' is preserved (#181).
+  const lit = patternLiteral(node.patterns[0] ?? "");
+  if (lit && /^[\w.-]+$/.test(lit)) {
+    return lit.toLowerCase();
   }
-  // Fallback: use description
+  // When patterns[0] is a regex template (numbered series like GLI-19 or
+  // direct identifier patterns like arXiv IDs and DOIs) and the caller matched
+  // a specific name, echo that matched name so the emitted SecID round-trips
+  // (#181).
+  if (matchedName) {
+    return matchedName;
+  }
+  // Fallback for static listings (Level 2 / index build) where no query name matched
   return node.description.toLowerCase().replace(/\s+/g, "-");
 }
 
