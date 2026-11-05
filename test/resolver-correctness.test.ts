@@ -526,8 +526,6 @@ describe("extractNameSlug canonical name extraction (SecID#181)", () => {
       extractNameSlug({
         patterns: ["(?i)^x\\.805$"],
         description: "ITU-T X.805 Security architecture",
-        weight: 85,
-        data: {},
       }),
     ).toBe("x.805");
 
@@ -535,8 +533,6 @@ describe("extractNameSlug canonical name extraction (SecID#181)", () => {
       extractNameSlug({
         patterns: ["(?i)^x.805$"],
         description: "ITU-T X.805 Wildcard dot",
-        weight: 85,
-        data: {},
       }),
     ).toBe("itu-t-x.805-wildcard-dot");
   });
