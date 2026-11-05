@@ -79,11 +79,12 @@ export interface MatchNodeData {
   type?: string;
   note?: string;
   /**
-   * Enumeration of the identifiers this node accepts, id → title. Treated as a
-   * closed set only when `patterns` is open (see isOpenPattern) — several
-   * registry entries pair a tight pattern with a deliberately partial list.
+   * Enumeration of the identifiers this node accepts, either as an id → title
+   * map or a flat array of valid IDs. String arrays always close the set; object
+   * maps close the set when `patterns` is open (see isOpenPattern) — several
+   * registry entries pair a tight pattern with a deliberately partial map.
    */
-  known_values?: Record<string, string>;
+  known_values?: Record<string, string> | string[];
   variables?: Record<string, VariableDefinition>;
   lookup_table?: Record<string, string | LookupTableEntry>;
 
@@ -202,6 +203,13 @@ export interface ChildIndexEntry {
    * absent as "child" for backward compatibility.
    */
   level?: "source" | "child";
+  /**
+   * This node accepts arbitrary input — declared via open_pattern or detected
+   * from the regex. Bare-identifier search skips these: an unbounded pattern
+   * cannot tell a real identifier from a search term. Absent on deploys
+   * predating this field, so callers must fall back to detection.
+   */
+  open?: boolean;
   patterns: string[];
   description: string;
   weight: number;
@@ -210,13 +218,6 @@ export interface ChildIndexEntry {
 
 // Combined child_index across all types, stored under KV key "secid:*"
 export interface GlobalChildIndexEntry extends ChildIndexEntry {
-  /**
-   * This node accepts arbitrary input — declared via open_pattern or detected
-   * from the regex. Bare-identifier search skips these: an unbounded pattern
-   * cannot tell a real identifier from a search term. Absent on deploys
-   * predating this field, so callers must fall back to detection.
-   */
-  open?: boolean;
   type: SecIDType;
 }
 

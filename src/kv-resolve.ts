@@ -388,8 +388,8 @@ async function crossSourceCandidates(
   name: string,
   typeIndex: TypeIndex
 ): Promise<string[]> {
-  const tight = typeIndex.child_index.filter((e) => !isOpenPattern(e.patterns));
-  const open = typeIndex.child_index.filter((e) => isOpenPattern(e.patterns));
+  const tight = typeIndex.child_index.filter((e) => !(e.open ?? isOpenPattern(e.patterns)));
+  const open = typeIndex.child_index.filter((e) => e.open ?? isOpenPattern(e.patterns));
   const tightMatches = findMatchingNamespaces(name, tight);
   if (tightMatches.length > 0) return tightMatches;
 

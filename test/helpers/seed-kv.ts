@@ -8,7 +8,7 @@
 import { REGISTRY } from "../../src/registry";
 import type { ChildIndexEntry, GlobalChildIndexEntry, NameIndexEntry, TypeIndex } from "../../src/types";
 import { namespaceAliases } from "../../src/identity";
-import { isOpenPattern } from "../../src/resolver";
+import { extractNameSlug, isOpenPattern } from "../../src/resolver";
 import { TYPE_SHORT_DESCRIPTIONS } from "../../src/type-registry";
 
 interface MatchNodeLike {
@@ -18,18 +18,6 @@ interface MatchNodeLike {
   weight: number;
   data: Record<string, unknown>;
   children?: MatchNodeLike[];
-}
-
-function extractNameSlug(node: MatchNodeLike): string {
-  const pat = node.patterns[0] ?? "";
-  const cleaned = pat
-    .replace(/^\(\?i\)/i, "")
-    .replace(/^\^/, "")
-    .replace(/\$$/, "");
-  if (/^[\w-]+$/.test(cleaned)) {
-    return cleaned.toLowerCase();
-  }
-  return node.description.toLowerCase().replace(/\s+/g, "-");
 }
 
 export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
@@ -70,10 +58,11 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
           childIndex.push({
             namespace: ns,
             name_slug: nameSlug,
+            open: child.open_pattern === true || isOpenPattern(child.patterns),
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
-            has_url: !!child.data?.url,
+            has_url: !!(child.data?.url || child.data?.lookup_table),
           });
         }
       }
@@ -102,7 +91,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
             patterns: child.patterns,
             description: child.description,
             weight: child.weight,
-            has_url: !!child.data?.url,
+            has_url: !!(child.data?.url || child.data?.lookup_table),
           });
         }
       }

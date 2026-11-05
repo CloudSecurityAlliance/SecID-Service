@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { parseSecID } from "../src/parser";
-import { resolve, buildUrl } from "../src/resolver";
+import { resolve, buildUrl, extractNameSlug } from "../src/resolver";
 import { REGISTRY } from "../src/registry";
 import type { ResolutionResult, RegistryResult, ResolveResponse, MatchNode, ExampleObject } from "../src/types";
 
@@ -324,15 +324,7 @@ describe("content_type on results", () => {
 // ── Helper ──
 
 function extractTestNameSlug(node: MatchNode): string {
-  const pat = node.patterns[0] ?? "";
-  const cleaned = pat
-    .replace(/^\(\?i\)/i, "")
-    .replace(/^\^/, "")
-    .replace(/\$$/, "");
-  if (/^[\w-]+$/.test(cleaned)) {
-    return cleaned.toLowerCase();
-  }
-  return node.description.toLowerCase().replace(/\s+/g, "-");
+  return extractNameSlug(node);
 }
 
 // ── Resolver-side URL validation (F-01-01) ──

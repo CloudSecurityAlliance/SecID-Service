@@ -6,7 +6,7 @@ import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
 import { resolveFromKV, resolveQuery } from "../src/kv-resolve";
 import { parseSecID } from "../src/parser";
-import { resolve, toRegExp } from "../src/resolver";
+import { resolve, toRegExp, extractNameSlug } from "../src/resolver";
 import { REGISTRY } from "../src/registry";
 import type { Registry, RegistryNamespace, ResolveResponse, TypeIndex } from "../src/types";
 
@@ -368,5 +368,182 @@ describe("pattern compilation cache (L2)", () => {
   it("keeps throwing for an invalid pattern", () => {
     expect(() => toRegExp("(")).toThrow();
     expect(() => toRegExp("(")).toThrow();
+  });
+});
+
+describe("lookup_table precedence over url template (SecID#177)", () => {
+  const registry: Registry = {
+    reference: {
+      "test.example": fakeNamespace([
+        {
+          patterns: ["(?i)^spdx$"],
+          description: "SPDX test",
+          weight: 100,
+          data: {},
+          children: [
+            {
+              patterns: ["^(Core|Software|AI)$"],
+              description: "SPDX 3.0.1 profile namespace",
+              weight: 100,
+              data: {
+                url: "https://spdx.org/rdf/3.0.1/terms/{id}/{id}",
+                lookup_table: {
+                  Core: "https://spdx.org/rdf/3.0.1/terms/Core",
+                },
+              },
+            },
+            {
+              patterns: ["^(alpha|beta)$"],
+              description: "Lookup-only item",
+              weight: 90,
+              data: {
+                lookup_table: {
+                  alpha: "https://test.example/lookup/alpha",
+                  beta: "https://test.example/lookup/beta",
+                },
+              },
+            },
+          ],
+        },
+      ]),
+    },
+  };
+
+  it("prefers lookup_table over url template when key is in lookup_table", () => {
+    const r = resolve(parseSecID("secid:reference/test.example/spdx#Core", registry), registry);
+    expect(r.status).toBe("found");
+    expect((r.results[0] as { url: string }).url).toBe("https://spdx.org/rdf/3.0.1/terms/Core");
+  });
+
+  it("falls back to url template when key matches pattern but is not in lookup_table", () => {
+    const r = resolve(parseSecID("secid:reference/test.example/spdx#AI", registry), registry);
+    expect(r.status).toBe("found");
+    expect((r.results[0] as { url: string }).url).toBe("https://spdx.org/rdf/3.0.1/terms/AI/AI");
+  });
+
+  it("resolves lookup_table-only nodes in namespace-scoped and type-scoped searches", () => {
+    const nsScoped = resolve(parseSecID("secid:reference/test.example/alpha", registry), registry);
+    expect(nsScoped.status).toBe("corrected");
+    expect((nsScoped.results[0] as { url: string }).url).toBe("https://test.example/lookup/alpha");
+
+    const typeScoped = resolve(parseSecID("secid:reference/alpha", registry), registry);
+    expect(typeScoped.status).toBe("found");
+    expect((typeScoped.results[0] as { url: string }).url).toBe("https://test.example/lookup/alpha");
+  });
+});
+
+describe("known_values array closing and open_pattern behavior (SecID#190)", () => {
+  const registry: Registry = {
+    control: {
+      "disa.example": {
+        ...fakeNamespace([
+          {
+            patterns: ["(?i)^rhel9-stig$"],
+            description: "RHEL 9 STIG",
+            weight: 100,
+            data: {},
+            children: [
+              {
+                patterns: ["^V-\\d+$"],
+                description: "STIG V-ID (without open_pattern)",
+                weight: 90,
+                data: {
+                  url: "https://disa.example/rhel9/{id}",
+                  known_values: ["V-257777", "V-257778"],
+                },
+              },
+              {
+                patterns: ["^SV-\\d+r\\d+_rule$"],
+                description: "STIG SV-ID (with open_pattern: true)",
+                weight: 90,
+                open_pattern: true,
+                data: {
+                  url: "https://disa.example/rhel9/{id}",
+                  known_values: ["SV-257777r925318_rule"],
+                },
+              },
+              {
+                patterns: ["^OPEN-\\d+$"],
+                description: "Open numeric rule without known_values",
+                weight: 50,
+                open_pattern: true,
+                data: {
+                  url: "https://disa.example/open/{id}",
+                },
+              },
+            ],
+          },
+        ]),
+        namespace: "disa.example",
+        type: "control",
+      },
+    },
+  };
+
+  it("closes pattern when known_values is a string[] array (without open_pattern)", () => {
+    const hitScoped = resolve(parseSecID("secid:control/disa.example/rhel9-stig#V-257777", registry), registry);
+    expect(hitScoped.status).toBe("found");
+    expect(secids(hitScoped)).toEqual(["secid:control/disa.example/rhel9-stig#V-257777"]);
+
+    const missScoped = resolve(parseSecID("secid:control/disa.example/rhel9-stig#V-999999", registry), registry);
+    expect(missScoped.status).toBe("related");
+
+    const hitUnscoped = resolve(parseSecID("secid:control/V-257777", registry), registry);
+    expect(hitUnscoped.status).toBe("found");
+    expect(secids(hitUnscoped)).toEqual(["secid:control/disa.example/rhel9-stig#V-257777"]);
+
+    const missUnscoped = resolve(parseSecID("secid:control/V-999999", registry), registry);
+    expect(missUnscoped.status).toBe("not_found");
+  });
+
+  it("closes pattern when known_values is a string[] array alongside open_pattern: true", () => {
+    const hitScoped = resolve(
+      parseSecID("secid:control/disa.example/rhel9-stig#SV-257777r925318_rule", registry),
+      registry,
+    );
+    expect(hitScoped.status).toBe("found");
+
+    const missScoped = resolve(
+      parseSecID("secid:control/disa.example/rhel9-stig#SV-999999r1_rule", registry),
+      registry,
+    );
+    expect(missScoped.status).toBe("related");
+  });
+
+  it("excludes open_pattern: true without known_values from unscoped search, but resolves when scoped", () => {
+    const missUnscoped = resolve(parseSecID("secid:control/OPEN-123", registry), registry);
+    expect(missUnscoped.status).toBe("not_found");
+
+    const hitScoped = resolve(parseSecID("secid:control/disa.example/rhel9-stig#OPEN-123", registry), registry);
+    expect(hitScoped.status).toBe("found");
+    expect(secids(hitScoped)).toEqual(["secid:control/disa.example/rhel9-stig#OPEN-123"]);
+  });
+});
+
+describe("extractNameSlug canonical name extraction (SecID#181)", () => {
+  it("preserves escaped dots in literal patterns[0] while rejecting unescaped wildcard dots", () => {
+    expect(
+      extractNameSlug({
+        patterns: ["(?i)^x\\.805$"],
+        description: "ITU-T X.805 Security architecture",
+      }),
+    ).toBe("x.805");
+
+    expect(
+      extractNameSlug({
+        patterns: ["(?i)^x.805$"],
+        description: "ITU-T X.805 Wildcard dot",
+      }),
+    ).toBe("itu-t-x.805-wildcard-dot");
+  });
+
+  it("echoes matchedName when patterns[0] is a regex template so canonical SecIDs round-trip", () => {
+    const gli = resolveLocal("secid:control/gaminglabs.com/GLI-19");
+    expect(gli.status).toBe("found");
+    expect(secids(gli)[0]).toBe("secid:control/gaminglabs.com/GLI-19");
+
+    const roundTrip = resolveLocal(secids(gli)[0]);
+    expect(roundTrip.status).toBe("found");
+    expect(secids(roundTrip)[0]).toBe("secid:control/gaminglabs.com/GLI-19");
   });
 });
