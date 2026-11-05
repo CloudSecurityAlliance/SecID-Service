@@ -15,7 +15,7 @@ Because **every merge to `main` runs `registry-kv-upload.yml`, syncs Cloudflare 
 ## 2. MCP Output Sanitization and Untrusted Input Handling
 
 - **Recursive MCP output sanitization (`src/sanitize.ts`):** Every MCP tool (`resolve`, `lookup`, `describe` in `src/mcp.ts`) returning registry-derived data must pass its output through `sanitizeResponseForMcp()`. Verify that changes to response shapes or `src/sanitize.ts`:
-  - Recursively traverse nested objects and arrays (`sanitizeDict()` / `sanitizeValue()`) so `UNTRUSTED_TEXT_KEYS` (`description`, `notes`, `note`, `official_name`, `common_name`, `auth`, `contacts`, `contact`, `scope`, `policy`, `disclosure_policy`, `version_disambiguation`, `unversioned_behavior`, `parsing_instructions`) at any depth are relocated into `registry_text_untrusted` with `registry_text_untrusted._warning`.
+  - Recursively traverse nested objects and arrays (`sanitizeDict()` / `sanitizeValue()`) so `UNTRUSTED_TEXT_KEYS` (`description`, `notes`, `note`, `official_name`, `common_name`, `alternate_names`, `auth`, `contacts`, `contact`, `scope`, `policy`, `disclosure_policy`, `version_disambiguation`, `unversioned_behavior`, `parsing_instructions`) at any depth are relocated into `registry_text_untrusted` with `registry_text_untrusted._warning`.
   - Strip C0/C1 control, zero-width, and bidi-override characters (`CONTROL_RE`) and recursively cap strings, arrays, and nested dicts via `capString()` / `capValue()` (`MAX_FIELD_CHARS = 4000`, `MAX_ARRAY_ITEMS = 64`).
 - **`submit_feedback` isolation (`src/feedback.ts`):** Caller-supplied text (`secid`, `message`, `suggested_urls`) must remain inside the `untrusted` envelope (`schema_version: 2`) with the `handling` warning intact.
 

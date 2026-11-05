@@ -10,6 +10,11 @@ import type { Context } from "hono";
 import { buildErrorEntry, recordError } from "./observability";
 import { TYPE_REGISTRY, TYPE_BY_NAME } from "./type-registry";
 import { sanitizeResponseForMcp } from "./sanitize";
+import {
+  buildToolContractManifest,
+  describeToolChanges,
+  InvalidSinceTimestampError,
+} from "./tool-changes";
 
 const MAX_SECID_QUERY_CHARS = 1024;
 const MAX_MCP_BODY_BYTES = 64 * 1024; // 64 KB
@@ -547,6 +552,8 @@ EXAMPLES:
     → Red Hat's CNA, CNA-LR, and Root programs with scopes and contacts
   lookup(type="capability", identifier="amazon.com/aws/s3")
     → S3 security capabilities (encryption, bucket policies, access logging)
+  lookup(type="entity", identifier="uaepass.ae")
+    → Namespace-level metadata (official_name, common_name, alternate_names, notes, urls, wikidata, wikipedia, source_count: 0)
 
 VULNERABILITY REPORTING USE CASE:
   "I found a vulnerability in X — who do I report it to?"
@@ -612,6 +619,80 @@ ARGUMENTS:
 
 RESPONSE: { status: "received", feedback_id, category, secid }. Submissions are stored for AI-assisted triage; they do not change the registry immediately.`;
 
+const DESCRIBE_CHANGES_DESCRIPTION = `Report what has changed across SecID's MCP tools since a timestamp, along with per-tool contract hashes and the overall toolset hash (#44).
+
+WHEN TO USE:
+  - Session start / cache validation: check whether tool contracts or behavior changed since your last session without re-diffing full tool schemas
+  - After observing a new io.cloudsecurityalliance.secid/contractHash or io.cloudsecurityalliance.secid/changed value in tools/list _meta: call describe_changes with your last-seen timestamp to get a structured summary of what changed and why
+
+ARGUMENTS:
+  since  optional RFC 3339 / ISO 8601 timestamp (e.g. '2026-06-01T00:00:00Z'). When provided, returns only change log entries strictly newer than 'since'. Omit to return the full tool change history.
+
+RESPONSE: { toolset_hash, last_changed, since, tools, changes[] }
+  - toolset_hash: sha256:<hex> over the canonical map of tool contract hashes
+  - last_changed: most recent RFC 3339 timestamp across all tools
+  - tools: map of { [toolName]: { contract_hash, changed } } matching tools/list _meta
+  - changes: chronological (newest-first) list of { timestamp, tool, change_type, summary, contract_hash? }`;
+
+const RESOLVE_INPUT_SCHEMA = {
+  secid: z
+    .string()
+    .describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search"),
+};
+
+const LOOKUP_INPUT_SCHEMA = {
+  type: z.enum(SECID_TYPES).describe("Security knowledge type: advisory, weakness, ttp, control, capability, methodology, disclosure, regulation, entity, or reference"),
+  identifier: z
+    .string()
+    .describe("The identifier to search for, e.g. 'CVE-2021-44228', 'CWE-79', 'T1059.003'"),
+};
+
+const DESCRIBE_INPUT_SCHEMA = {
+  secid: z
+    .string()
+    .describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'"),
+};
+
+const SUBMIT_FEEDBACK_INPUT_SCHEMA = {
+  category: z
+    .enum(["missing-namespace", "correction", "suggestion"])
+    .describe(
+      "missing-namespace = a source/org that should be in the registry but isn't (e.g. after a not_found); correction = existing data is wrong (bad URL, wrong name, broken pattern); suggestion = anything else"
+    ),
+  secid: z
+    .string()
+    .max(MAX_SECID_QUERY_CHARS)
+    .describe(
+      "The SecID this feedback is about — e.g. 'secid:entity/example.com' or 'secid:advisory/vendor.com/alerts'. Use the closest SecID you have, even if it didn't resolve."
+    ),
+  message: z
+    .string()
+    .min(1)
+    .max(MAX_FEEDBACK_MESSAGE_CHARS)
+    .describe("What is missing, wrong, or suggested — with any supporting detail or evidence."),
+  suggested_urls: z
+    .array(z.string().max(MAX_FEEDBACK_URL_CHARS))
+    .max(MAX_FEEDBACK_URLS)
+    .optional()
+    .describe("Optional supporting URLs (homepage, advisory feed, docs, the correct link)."),
+};
+
+const DESCRIBE_CHANGES_INPUT_SCHEMA = {
+  since: z
+    .string()
+    .max(64)
+    .optional()
+    .describe("Optional RFC 3339 / ISO 8601 timestamp (e.g. '2026-06-01T00:00:00Z'). When provided, returns only change log entries strictly newer than this timestamp. Omit for full history."),
+};
+
+export const TOOL_CONTRACT_MANIFEST = buildToolContractManifest([
+  { name: "resolve", description: RESOLVE_DESCRIPTION, inputSchema: RESOLVE_INPUT_SCHEMA },
+  { name: "lookup", description: LOOKUP_DESCRIPTION, inputSchema: LOOKUP_INPUT_SCHEMA },
+  { name: "describe", description: DESCRIBE_DESCRIPTION, inputSchema: DESCRIBE_INPUT_SCHEMA },
+  { name: "submit_feedback", description: SUBMIT_FEEDBACK_DESCRIPTION, inputSchema: SUBMIT_FEEDBACK_INPUT_SCHEMA },
+  { name: "describe_changes", description: DESCRIBE_CHANGES_DESCRIPTION, inputSchema: DESCRIBE_CHANGES_INPUT_SCHEMA },
+]);
+
 function createMcpServer(
   kv: KVNamespace | undefined,
   registryKv: KVNamespace,
@@ -624,13 +705,12 @@ function createMcpServer(
   });
 
   // ── Tool: resolve ──
-  server.tool(
+  server.registerTool(
     "resolve",
-    RESOLVE_DESCRIPTION,
     {
-      secid: z
-        .string()
-        .describe("Full SecID string, e.g. 'secid:advisory/mitre.org/cve#CVE-2021-44228' or 'secid:advisory/CVE-2021-44228' for cross-source search"),
+      description: RESOLVE_DESCRIPTION,
+      inputSchema: RESOLVE_INPUT_SCHEMA,
+      _meta: TOOL_CONTRACT_MANIFEST.metaByTool.resolve,
     },
     async ({ secid }) => {
       if (secid.length > MAX_SECID_QUERY_CHARS) {
@@ -673,14 +753,12 @@ function createMcpServer(
   );
 
   // ── Tool: lookup ──
-  server.tool(
+  server.registerTool(
     "lookup",
-    LOOKUP_DESCRIPTION,
     {
-      type: z.enum(SECID_TYPES).describe("Security knowledge type: advisory, weakness, ttp, control, capability, methodology, disclosure, regulation, entity, or reference"),
-      identifier: z
-        .string()
-        .describe("The identifier to search for, e.g. 'CVE-2021-44228', 'CWE-79', 'T1059.003'"),
+      description: LOOKUP_DESCRIPTION,
+      inputSchema: LOOKUP_INPUT_SCHEMA,
+      _meta: TOOL_CONTRACT_MANIFEST.metaByTool.lookup,
     },
     async ({ type, identifier }) => {
       if (identifier.length > MAX_SECID_QUERY_CHARS) {
@@ -724,13 +802,12 @@ function createMcpServer(
   );
 
   // ── Tool: describe ──
-  server.tool(
+  server.registerTool(
     "describe",
-    DESCRIBE_DESCRIPTION,
     {
-      secid: z
-        .string()
-        .describe("SecID without subpath, e.g. 'secid:advisory/mitre.org/cve', 'secid:advisory/mitre.org', or 'secid:advisory'"),
+      description: DESCRIBE_DESCRIPTION,
+      inputSchema: DESCRIBE_INPUT_SCHEMA,
+      _meta: TOOL_CONTRACT_MANIFEST.metaByTool.describe,
     },
     async ({ secid }) => {
       if (secid.length > MAX_SECID_QUERY_CHARS) {
@@ -873,31 +950,12 @@ function createMcpServer(
   // there is no web form. AI/MCP clients call this to request a missing
   // source, flag wrong data, or suggest an improvement; submissions land in
   // secid_FEEDBACK (feedback:<uuid>) for later AI-assisted triage.
-  server.tool(
+  server.registerTool(
     "submit_feedback",
-    SUBMIT_FEEDBACK_DESCRIPTION,
     {
-      category: z
-        .enum(["missing-namespace", "correction", "suggestion"])
-        .describe(
-          "missing-namespace = a source/org that should be in the registry but isn't (e.g. after a not_found); correction = existing data is wrong (bad URL, wrong name, broken pattern); suggestion = anything else"
-        ),
-      secid: z
-        .string()
-        .max(MAX_SECID_QUERY_CHARS)
-        .describe(
-          "The SecID this feedback is about — e.g. 'secid:entity/example.com' or 'secid:advisory/vendor.com/alerts'. Use the closest SecID you have, even if it didn't resolve."
-        ),
-      message: z
-        .string()
-        .min(1)
-        .max(MAX_FEEDBACK_MESSAGE_CHARS)
-        .describe("What is missing, wrong, or suggested — with any supporting detail or evidence."),
-      suggested_urls: z
-        .array(z.string().max(MAX_FEEDBACK_URL_CHARS))
-        .max(MAX_FEEDBACK_URLS)
-        .optional()
-        .describe("Optional supporting URLs (homepage, advisory feed, docs, the correct link)."),
+      description: SUBMIT_FEEDBACK_DESCRIPTION,
+      inputSchema: SUBMIT_FEEDBACK_INPUT_SCHEMA,
+      _meta: TOOL_CONTRACT_MANIFEST.metaByTool.submit_feedback,
     },
     async ({ category, secid, message, suggested_urls }) => {
       try {
@@ -939,6 +997,53 @@ function createMcpServer(
             text: JSON.stringify({
               status: "error",
               message: `Could not record feedback. Reference: ${errorId}`,
+              error_id: errorId,
+            }),
+          }],
+          isError: true,
+        };
+      }
+    }
+  );
+
+  // ── Tool: describe_changes ──
+  server.registerTool(
+    "describe_changes",
+    {
+      description: DESCRIBE_CHANGES_DESCRIPTION,
+      inputSchema: DESCRIBE_CHANGES_INPUT_SCHEMA,
+      _meta: TOOL_CONTRACT_MANIFEST.metaByTool.describe_changes,
+    },
+    async ({ since }) => {
+      try {
+        const result = describeToolChanges(TOOL_CONTRACT_MANIFEST, since);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify(result, null, 2),
+          }],
+        };
+      } catch (err) {
+        if (err instanceof InvalidSinceTimestampError) {
+          return {
+            content: [{
+              type: "text",
+              text: JSON.stringify({
+                status: "error",
+                message: err.message,
+              }),
+            }],
+            isError: true,
+          };
+        }
+        const entry = buildErrorEntry("mcp.tool.describe_changes", since ?? "", err, req);
+        const errorId = await recordError(kv, entry);
+        return {
+          content: [{
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              message: `Internal error. Reference: ${errorId}`,
               error_id: errorId,
             }),
           }],

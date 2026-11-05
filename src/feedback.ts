@@ -2,10 +2,17 @@
 // Active submissions via the submit_feedback MCP tool (intake is MCP-only by
 // design — no web forms), one row per submission under feedback:<uuid>.
 //
-// Passive namespace-miss capture no longer lives here: it is an event log, so
-// it goes to Workers Analytics Engine (src/demand.ts). Keys under the old
-// `miss:<type>/<namespace>` prefix may still exist in this namespace from
-// before that change; nothing writes or reads them now.
+// Retention policy (#22):
+//   - Open (untriaged) feedback:<uuid> items are an inbox and are written
+//     WITHOUT expirationTtl so unprocessed submissions are never silently
+//     dropped before triage.
+//   - Resolved items (marked via resolveFeedback) are re-written with a
+//     30-day expirationTtl (RESOLVED_FEEDBACK_TTL_SECONDS) so triaged records
+//     remain inspectable for audit and then age out automatically.
+//   - Passive namespace-miss capture no longer lives here: it is an event log,
+//     so it goes to Workers Analytics Engine (src/demand.ts, 3-month retention).
+//     Keys under the old `miss:<type>/<namespace>` prefix may still exist in
+//     this namespace from before that change; nothing writes or reads them now.
 //
 // submit_feedback is reachable without authentication and stores caller text,
 // so it is bounded: input lengths are capped by the tool schema (mcp.ts), the
@@ -18,6 +25,9 @@
 
 import { uuidv7 } from "./observability";
 import { WriteBudget } from "./write-budget";
+
+/** 30-day TTL applied when a feedback item is marked resolved. */
+export const RESOLVED_FEEDBACK_TTL_SECONDS = 60 * 60 * 24 * 30;
 
 export type FeedbackCategory = "missing-namespace" | "correction" | "suggestion";
 
@@ -42,6 +52,10 @@ export interface FeedbackRecord {
    * instead of guessing which top-level fields are safe to act on.
    */
   untrusted: UntrustedSubmission;
+  /** Set by resolveFeedback when a maintainer/agent triages the item. */
+  resolved_at?: string;
+  /** Optional maintainer/agent note recorded on triage resolution. */
+  resolution_note?: string;
 }
 
 export const FEEDBACK_HANDLING_NOTE =
@@ -101,6 +115,34 @@ export async function recordFeedback(
 
   if (!feedbackBudget.take()) throw new FeedbackRateLimitedError();
 
+  // Open feedback items have no expirationTtl so they persist until triaged.
   await kv.put(`feedback:${record.id}`, JSON.stringify(record));
   return record;
+}
+
+/**
+ * Mark an existing feedback:<id> record as resolved and apply a 30-day
+ * expirationTtl so resolved inbox items age out automatically after audit.
+ * Returns the updated record, or null if the key does not exist.
+ */
+export async function resolveFeedback(
+  kv: KVNamespace,
+  id: string,
+  resolutionNote?: string
+): Promise<FeedbackRecord | null> {
+  const key = id.startsWith("feedback:") ? id : `feedback:${id}`;
+  const raw = await kv.get(key);
+  if (!raw) return null;
+
+  const existing = JSON.parse(raw) as FeedbackRecord;
+  const updated: FeedbackRecord = {
+    ...existing,
+    resolved_at: new Date().toISOString(),
+    ...(resolutionNote !== undefined ? { resolution_note: resolutionNote } : {}),
+  };
+
+  await kv.put(key, JSON.stringify(updated), {
+    expirationTtl: RESOLVED_FEEDBACK_TTL_SECONDS,
+  });
+  return updated;
 }

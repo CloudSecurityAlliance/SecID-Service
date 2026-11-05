@@ -140,6 +140,25 @@ function listSources(
   ns: RegistryNamespace
 ): ResolveResponse {
   const country = (ns as unknown as { tags?: { country?: unknown } }).tags?.country;
+  if (ns.match_nodes.length === 0) {
+    return response(query, "found", [
+      {
+        secid: `secid:${parsed.type}/${parsed.namespace}`,
+        data: {
+          official_name: ns.official_name,
+          common_name: ns.common_name ?? null,
+          alternate_names: ns.alternate_names ?? null,
+          notes: ns.notes ?? null,
+          urls: ns.urls ?? [],
+          wikidata: ns.wikidata ?? null,
+          wikipedia: ns.wikipedia ?? null,
+          source_count: 0,
+          ...(Array.isArray(country) && country.length ? { country } : {}),
+        },
+      },
+    ]);
+  }
+
   const results: RegistryResult[] = ns.match_nodes.map((node) => {
     const nameSlug = extractNameSlug(node);
     const subtypes = new Set<string>();
@@ -182,10 +201,17 @@ function resolveWithName(
     const crossResults = namespaceScopedSearch(parsed, ns);
     if (crossResults.length > 0) {
       const filtered = applyQualifierFilters(crossResults, parsed.qualifiers);
-      if (filtered === null) {
-        return qualifierNotFoundResponse(query, crossResults, parsed.qualifiers!);
+      if (filtered !== null) {
+        return response(query, "corrected", filtered);
       }
-      return response(query, "corrected", filtered);
+      if (parsed.qualifiers?.lang) {
+        for (const node of ns.match_nodes) {
+          if (!node.children) continue;
+          const langMsg = buildLangNotFoundMessage(node.children, identifier, parsed.qualifiers.lang);
+          if (langMsg) return response(query, "not_found", [], langMsg);
+        }
+      }
+      return qualifierNotFoundResponse(query, crossResults, parsed.qualifiers!);
     }
 
     if (parsed.qualifiers?.lang) {
@@ -508,6 +534,10 @@ function resolveSubpath(
   if (results.length > 0) {
     const filtered = applyQualifierFilters(results, parsed.qualifiers);
     if (filtered === null) {
+      if (parsed.qualifiers?.lang) {
+        const langMsg = buildLangNotFoundMessage(node.children, parsed.subpath!, parsed.qualifiers.lang);
+        if (langMsg) return response(query, "not_found", [], langMsg);
+      }
       return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
     }
     return response(query, "found", filtered);
@@ -603,6 +633,10 @@ function resolveVersioned(
   if (results.length > 0) {
     const filtered = applyQualifierFilters(results, parsed.qualifiers);
     if (filtered === null) {
+      if (parsed.qualifiers?.lang) {
+        const langMsg = buildLangNotFoundMessage(versionChild.children, parsed.subpath!, parsed.qualifiers.lang);
+        if (langMsg) return response(query, "not_found", [], langMsg);
+      }
       return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
     }
     return response(query, "found", filtered);
@@ -1107,6 +1141,15 @@ function typeScopedSearch(
 
   const filtered = applyQualifierFilters(results, parsed.qualifiers);
   if (filtered === null) {
+    if (parsed.qualifiers?.lang) {
+      for (const ns of Object.values(typeRegistry)) {
+        for (const node of ns.match_nodes) {
+          if (!node.children) continue;
+          const langMsg = buildLangNotFoundMessage(node.children, identifier, parsed.qualifiers.lang, false);
+          if (langMsg) return response(query, "not_found", [], langMsg);
+        }
+      }
+    }
     return qualifierNotFoundResponse(query, results, parsed.qualifiers!);
   }
 
@@ -1301,10 +1344,10 @@ export function applyQualifierFilters(
     });
   }
 
-  // lang filter — keep only results matching the requested language
+  // lang filter — keep only URL resolution results matching the requested language
   if (qualifiers.lang) {
     filtered = filtered.filter((r) => {
-      if (!("url" in r)) return true; // Keep RegistryResults
+      if (!("url" in r)) return false;
       const res = r as ResolutionResult;
       // If result has no lang set, it's not lang-aware — keep it
       if (!res.lang) return true;

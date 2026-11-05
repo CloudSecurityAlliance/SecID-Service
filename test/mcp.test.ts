@@ -2,6 +2,12 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
 import { BUILD_A_CLIENT_DOC, PROMPT_TEMPLATE_DOC } from "../src/mcp";
+import {
+  CHANGED_META_KEY,
+  CONTRACT_HASH_META_KEY,
+  canonicalizeJson,
+  sha256Hex as syncSha256Hex,
+} from "../src/tool-changes";
 
 async function sha256Hex(text: string): Promise<string> {
   const bytes = new TextEncoder().encode(text);
@@ -309,12 +315,43 @@ describe("MCP end-to-end flow", () => {
 
     // Step 3: List tools
     const { body: toolsBody } = await mcpPost(jsonrpc("tools/list", {}, 2));
-    const toolsResp = toolsBody as { result?: { tools: Array<{ name: string; description: string; inputSchema: unknown }> } };
+    const toolsResp = toolsBody as {
+      result?: {
+        tools: Array<{
+          name: string;
+          description: string;
+          inputSchema: Record<string, unknown>;
+          annotations?: Record<string, unknown>;
+          _meta?: Record<string, string>;
+        }>;
+      };
+    };
     const tools = toolsResp.result!.tools;
-    expect(tools.length).toBe(4);
+    expect(tools.length).toBe(5);
     expect(tools.map((t) => t.name).sort()).toEqual(
-      ["describe", "lookup", "resolve", "submit_feedback"]
+      ["describe", "describe_changes", "lookup", "resolve", "submit_feedback"]
     );
+
+    // Verify every tool includes _meta with io.cloudsecurityalliance.secid/contractHash
+    // and io.cloudsecurityalliance.secid/changed, and that the hash matches RFC 8785 JCS
+    // SHA-256 computed over the wire tool definition (#44).
+    for (const tool of tools) {
+      expect(tool._meta).toBeDefined();
+      const contractHash = tool._meta![CONTRACT_HASH_META_KEY];
+      const changed = tool._meta![CHANGED_META_KEY];
+      expect(contractHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+      expect(Number.isNaN(Date.parse(changed))).toBe(false);
+
+      const canonical = canonicalizeJson({
+        name: tool.name,
+        description: tool.description,
+        inputSchema: tool.inputSchema,
+        ...(tool.annotations !== undefined ? { annotations: tool.annotations } : {}),
+      });
+      const expectedWebCryptoHex = await sha256Hex(canonical);
+      expect(syncSha256Hex(canonical)).toBe(expectedWebCryptoHex);
+      expect(contractHash).toBe(`sha256:${expectedWebCryptoHex}`);
+    }
 
     // Verify resolve tool has correct input schema
     const resolveTool = tools.find((t) => t.name === "resolve");
@@ -431,5 +468,71 @@ describe("MCP end-to-end flow", () => {
     const data = JSON.parse(resp.result!.content[0].text);
     expect(data.status).toBe("found");
     expect(data.results[0].url).toContain("owasp.org");
+  });
+
+  it("describe_changes returns toolset_hash, per-tool hashes, and filters by 'since' (#44)", async () => {
+    // 1. Full history (no 'since')
+    const { body: fullBody } = await mcpCallTool("describe_changes", {});
+    const fullResp = fullBody as { result?: { content: Array<{ text: string }>; isError?: boolean } };
+    expect(fullResp.result?.isError ?? false).toBe(false);
+    const fullData = JSON.parse(fullResp.result!.content[0].text);
+    expect(fullData.toolset_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(fullData.last_changed).toBe("2026-11-04T00:00:00Z");
+    expect(fullData.since).toBeNull();
+    expect(Object.keys(fullData.tools).sort()).toEqual(
+      ["describe", "describe_changes", "lookup", "resolve", "submit_feedback"]
+    );
+    expect(fullData.changes.length).toBeGreaterThanOrEqual(5);
+
+    // 2. Filtered since 2026-10-01T00:00:00Z (returns only the 2026-11-04 entries)
+    const { body: sinceBody } = await mcpCallTool("describe_changes", {
+      since: "2026-10-01T00:00:00Z",
+    });
+    const sinceResp = sinceBody as { result?: { content: Array<{ text: string }>; isError?: boolean } };
+    const sinceData = JSON.parse(sinceResp.result!.content[0].text);
+    expect(sinceData.since).toBe("2026-10-01T00:00:00Z");
+    expect(sinceData.changes.length).toBe(4);
+    expect(sinceData.changes.map((c: { tool: string }) => c.tool).sort()).toEqual([
+      "describe",
+      "describe_changes",
+      "lookup",
+      "resolve",
+    ]);
+
+    // 3. Filtered at or after last_changed (returns empty changes array)
+    const { body: upToDateBody } = await mcpCallTool("describe_changes", {
+      since: "2026-11-04T00:00:00Z",
+    });
+    const upToDateResp = upToDateBody as { result?: { content: Array<{ text: string }> } };
+    const upToDateData = JSON.parse(upToDateResp.result!.content[0].text);
+    expect(upToDateData.changes).toEqual([]);
+
+    // 4. Invalid 'since' timestamp returns isError: true
+    const { body: badBody } = await mcpCallTool("describe_changes", {
+      since: "not-a-timestamp",
+    });
+    const badResp = badBody as { result?: { content: Array<{ text: string }>; isError?: boolean } };
+    expect(badResp.result?.isError).toBe(true);
+    const badData = JSON.parse(badResp.result!.content[0].text);
+    expect(badData.status).toBe("error");
+    expect(badData.message).toContain("RFC 3339");
+  });
+
+  it("describe and lookup return namespace metadata for entity with empty match_nodes (#11)", async () => {
+    for (const call of [
+      mcpCallTool("describe", { secid: "secid:entity/uaepass.ae" }),
+      mcpCallTool("lookup", { type: "entity", identifier: "uaepass.ae" }),
+    ]) {
+      const { body } = await call;
+      const resp = body as { result?: { content: Array<{ text: string }>; isError?: boolean } };
+      expect(resp.result?.isError ?? false).toBe(false);
+      const data = JSON.parse(resp.result!.content[0].text);
+      expect(data.status).toBe("found");
+      expect(data.results.length).toBe(1);
+      expect(data.results[0].secid).toBe("secid:entity/uaepass.ae");
+      expect(data.results[0].data.source_count).toBe(0);
+      expect(data.results[0].data.registry_text_untrusted.official_name).toBe("UAE Pass");
+      expect(data.results[0].data.registry_text_untrusted.common_name).toBe("UAE Pass");
+    }
   });
 });

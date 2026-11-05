@@ -1,6 +1,6 @@
 # INTERFACE-RESOURCES.md — SecID-Service
 
-**Last verified:** 2026-08-07
+**Last verified:** 2026-11-04
 **Scope:** Interfaces this repo exposes to callers, and first-party interfaces it
 consumes. Infrastructure (KV namespaces, bindings, DNS, tokens) lives in
 [OPERATIONAL-RESOURCES.md](OPERATIONAL-RESOURCES.md); backup posture in
@@ -20,13 +20,14 @@ two descriptions drift apart.
 
 - **Endpoint:** `secid.cloudsecurityalliance.org`
   - `/mcp` — MCP JSON-RPC (also `/mcp/*` for sub-paths)
-  - `/api/v1/resolve`, `/api/v1/lookup`, `/api/v1/describe` — REST
+  - `/api/v1/resolve`, `/api/v1/lookup`, `/api/v1/describe`, `/api/v1/types` — REST
   - `/.well-known/*` — discovery metadata
 - **Transport:** HTTP (remote); no stdio variant
-- **Tools (MCP):** `resolve`, `lookup`, `describe`, `submit_feedback`
+- **Tools (MCP):** `resolve`, `lookup`, `describe`, `submit_feedback`, `describe_changes`
+  - Every tool in `tools/list` includes `_meta` with `io.cloudsecurityalliance.secid/contractHash` (`sha256:<hex>` over RFC 8785 JCS canonicalized `{ name, description, inputSchema, annotations }`) and `io.cloudsecurityalliance.secid/changed` (RFC 3339 timestamp).
 - **Auth:** anonymous — no token, no tier system. Every caller gets the same access.
 - **Code:** [`src/index.ts`](src/index.ts) (router), [`src/mcp.ts`](src/mcp.ts)
-  (MCP layer), [`src/resolver.ts`](src/resolver.ts) (shared resolution logic)
+  (MCP layer), [`src/tool-changes.ts`](src/tool-changes.ts) (MCP contract hashes & change log), [`src/resolver.ts`](src/resolver.ts) (shared resolution logic)
 - **Status:** production
 - **Health check:**
   ```bash
@@ -51,11 +52,8 @@ two descriptions drift apart.
 - **Why:** the registry *is* the resolver's data — without it every lookup misses
 - **Transport:** cross-repo GitHub Actions `repository_dispatch` (type
   `registry-updated`), then KV upload
-- **Status:** **broken** since 2026-04-30 — see
-  [FRICTION-001](FRICTION/FRICTION-001.md) and
-  [WAITING-FOR-001](WAITING-FOR/WAITING-FOR-001.md). The live KV data is stale
-  relative to the spec repo until this is fixed.
-- **Notes:** 724 namespaces as of 2026-05-07. The KV namespace itself is
+- **Status:** production — auto-sync active (`FRICTION-001` resolved 2026-09-25).
+- **Notes:** 724+ namespaces across 10 types. The KV namespace itself is
   infrastructure and documented in
   [OPERATIONAL-RESOURCES.md](OPERATIONAL-RESOURCES.md); what is recorded here is
   the *dependency on another first-party repo's content*.

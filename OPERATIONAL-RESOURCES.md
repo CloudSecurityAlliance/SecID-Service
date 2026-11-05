@@ -32,8 +32,8 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Inputs:** registry JSON files in [CloudSecurityAlliance/SecID](https://github.com/CloudSecurityAlliance/SecID) `registry/**/*.json` (724 namespaces as of 2026-05-07)
 - **Outputs:** KV keys consumed by the Worker resolver
 - **Status:** production
-- **Last touched:** 2026-09-25 (last successful sync — chain has been broken since)
-- **Next review:** unblock as part of FRICTION-001 resolution; then quarterly thereafter
+- **Last touched:** 2026-11-04 (continuous auto-sync active; FRICTION-001 resolved 2026-09-25)
+- **Next review:** 2027-02-01 (quarterly)
 - **Cadence:** auto-synced on push to `registry/**/*.json` in the SecID repo
 - **Health check:** `wrangler kv key list --namespace-id=cfbc271787614516a39fa43d9ca4f95a | wc -l` should match the namespace count produced by `build-registry.ts`
 - **Runbook:** `npx tsx scripts/upload-registry-kv.ts --sync /path/to/SecID` from this repo with `CLOUDFLARE_API_TOKEN` set to a token that has Workers KV Edit permission. `--sync` mode overwrites changed keys and deletes orphans (with a 50-key safety threshold)
@@ -41,21 +41,57 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 
 ## KV namespace — `secid_OBSERVABILITY`
 
-**What it does.** Always-on error and access log store with UUIDv7 IDs. Errors are written via `buildErrorEntry()` + `recordError()` from `src/observability.ts`. Used for post-hoc debugging and operational visibility.
+**What it does.** Always-on error and access log store with UUIDv7 IDs. Errors are written via `buildErrorEntry()` + `recordError()` from `src/observability.ts` with a 30-day `expirationTtl` (`TTL_30_DAYS = 2,592,000` seconds) and bounded by a per-isolate write budget (`ERROR_WRITES_PER_MINUTE = 60`). Used for post-hoc debugging and operational visibility.
 
 - **Code:** [`src/observability.ts`](src/observability.ts)
 - **Binding ID:** `c5cbc52b9a724433b3043efdf31857f4` (preview: `3bc7078377cb44bc8fc63e5f9f344392`)
 - **Runtime:** Cloudflare KV
-- **Inputs:** errors raised by Worker request handlers; request metadata
-- **Outputs:** KV keys (UUIDv7-named) for inspection via `wrangler kv key list`
+- **Inputs:** errors raised by Worker request handlers; request metadata (IP/User-Agent omitted for privacy)
+- **Outputs:** KV keys (`error:<uuidv7>`) for inspection via `wrangler kv key list`
 - **Status:** production
-- **Last touched:** 2026-03-05 (initial deployment)
-- **Next review:** 2026-09-01 (review retention strategy; KV has no TTL set)
+- **Last touched:** 2026-11-04
+- **Next review:** 2027-02-01
 - **Cadence:** continuous, request-driven
+- **Retention:** 30-day automatic KV `expirationTtl` (`TTL_30_DAYS = 2,592,000` seconds)
 - **Health check:** `wrangler kv key list --namespace-id=c5cbc52b9a724433b3043efdf31857f4 | head` — non-empty list during error conditions, empty during clean operation
 - **Runbook:** Read individual entries with `wrangler kv key get --namespace-id=c5cbc52b9a724433b3043efdf31857f4 <key>`. UUIDv7 IDs sort lexicographically by time, so most recent errors are at the end of the listing
 - **Owner:** Kurt Seifried
-- **Notes:** No retention policy yet; will need pruning strategy as volume grows. Philosophy doc: `CINO-Platform-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md`
+- **Notes:** 30-day KV TTL keeps error storage self-pruning. Philosophy doc: `CINO-Platform-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md`
+
+## KV namespace — `secid_FEEDBACK`
+
+**What it does.** Active MCP feedback inbox (`feedback:<uuidv7>`) populated by the `submit_feedback` MCP tool (`src/feedback.ts`), bounded by a per-isolate write budget (`FEEDBACK_WRITES_PER_MINUTE = 20`) and input size limits. Caller-supplied strings are isolated inside the `untrusted` envelope (`schema_version: 2`).
+
+- **Code:** [`src/feedback.ts`](src/feedback.ts)
+- **Binding ID:** `61642c6485674ef597cbff50fe9b9f18` (preview: `ef093fcb1caa4b55bb25f52b80082fc9`)
+- **Runtime:** Cloudflare KV
+- **Inputs:** `submit_feedback` MCP tool calls (`missing-namespace`, `correction`, `suggestion`)
+- **Outputs:** KV keys (`feedback:<uuidv7>`) for maintainer/agent triage
+- **Status:** production
+- **Last touched:** 2026-11-04
+- **Next review:** 2027-02-01
+- **Cadence:** request-driven (on `submit_feedback` tool call)
+- **Retention:** Open (untriaged) `feedback:<uuid>` records have **no `expirationTtl`** so inbox items are never dropped before triage. When marked resolved via `resolveFeedback()`, records are updated with a **30-day `expirationTtl`** (`RESOLVED_FEEDBACK_TTL_SECONDS = 2,592,000` seconds) so they remain auditable for 30 days and then age out automatically.
+- **Health check:** `wrangler kv key list --remote --binding secid_FEEDBACK --prefix feedback:`
+- **Runbook:** See [`docs/DEMAND-SIGNAL.md`](docs/DEMAND-SIGNAL.md) for listing and reading `feedback:<uuid>` entries. Note: passive namespace-miss capture (`miss:*`) was migrated out of `secid_FEEDBACK` to Cloudflare Workers Analytics Engine (`secid_DEMAND`).
+- **Owner:** Kurt Seifried
+
+## Workers Analytics Engine — `secid_DEMAND` (`secid_demand_misses`)
+
+**What it does.** Append-only event log for passive namespace-miss demand signal (`not_found` at the namespace lookup step when the domain token looks like a valid domain). Written fire-and-forget via `writeDataPoint` (`src/demand.ts`), bounded by a per-isolate budget (`MISS_EVENTS_PER_MINUTE = 300`).
+
+- **Code:** [`src/demand.ts`](src/demand.ts), [`docs/DEMAND-SIGNAL.md`](docs/DEMAND-SIGNAL.md)
+- **Dataset:** `secid_demand_misses` (binding `secid_DEMAND`)
+- **Runtime:** Cloudflare Workers Analytics Engine
+- **Inputs:** namespace misses from `/api/v1/*` and `/mcp`
+- **Outputs:** Analytics Engine data points (`index1 = "<type>/<namespace>"`, `blob1 = type`, `blob2 = namespace`, `blob3 = channel`, `blob4 = sanitized query sample`, `double1 = 1`)
+- **Status:** production
+- **Last touched:** 2026-11-04
+- **Next review:** 2027-02-01
+- **Cadence:** continuous, request-driven
+- **Retention:** 3 months (managed automatically by Workers Analytics Engine)
+- **Runbook:** Query top missing namespaces over the last 30 days via the Cloudflare Analytics Engine SQL API — see [`docs/DEMAND-SIGNAL.md`](docs/DEMAND-SIGNAL.md)
+- **Owner:** Kurt Seifried
 
 ## GitHub Actions — Deploy chain (cross-repo)
 

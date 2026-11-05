@@ -377,3 +377,80 @@ positively and everything else treated as a client. 405 is the answer under MCP 
 **Affects:** `src/method-gate.ts`, `src/index.ts`, `test/method-gate.test.ts`, `e2e/mcp.spec.ts`,
 `website/src/pages/index.astro` (`id="mcp-setup"`). Shipped in #40, verified in production; the
 post-deploy gate (#41) re-verifies it on every deploy.
+
+---
+
+## ADR-016: Pin GitHub Actions to Node 24 releases (`actions/checkout@v7.0.1`, `actions/setup-node@v7.1.0`)
+
+**Date:** 2026-11-04
+**Status:** Accepted
+**Decision method:** AI decision (Gemini), reviewed by Codex (#20)
+
+**Goal:** Eliminate the GitHub Actions Node 20 runtime deprecation warning across CI and deployment workflows while preserving full commit-SHA pinning.
+
+**Context:** Both `.github/workflows/ci.yml` and `.github/workflows/registry-kv-upload.yml` pinned `actions/checkout@v4.4.0` and `actions/setup-node@v4.4.0`, which use the deprecated `node20` action runtime.
+
+**Decision:** Update both workflows to the SHA-pinned Node 24 (`using: node24`) releases: `actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1` (`v7.0.1`) and `actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1` (`v7.1.0`).
+
+**Rejected alternatives:**
+- **Floating major tags (`@v7`)** — Violates repository supply-chain security policy requiring full 40-char commit SHA pins.
+- **Keep `@v4` with `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`** — Temporary workaround rather than upgrading to the native Node 24 action releases.
+
+---
+
+## ADR-017: `secid_FEEDBACK` inbox retention and 30-day resolved TTL
+
+**Date:** 2026-11-04
+**Status:** Accepted
+**Decision method:** AI decision (Gemini), reviewed by Codex (#22)
+
+**Goal:** Prevent silent loss of untriaged user/agent feedback while ensuring triaged feedback records expire automatically after 30 days.
+
+**Context:** Passive namespace-miss capture (`miss:*`) was migrated from `secid_FEEDBACK` KV to Cloudflare Workers Analytics Engine (`secid_DEMAND`, 3-month retention) in #39. Remaining writes to `secid_FEEDBACK` KV are active `feedback:<uuid>` inbox submissions from the `submit_feedback` MCP tool. Applying an immediate 30-day `expirationTtl` on `recordFeedback()` would silently delete unprocessed user submissions if triage is delayed beyond 30 days.
+
+**Decision:**
+- Keep open (untriaged) `feedback:<uuid>` records written by `recordFeedback()` without an `expirationTtl` so inbox items persist until triaged.
+- Provide `resolveFeedback(kv, id, resolutionNote?)` in `src/feedback.ts`, which marks a record with `resolved_at` (and optional `resolution_note`) and re-writes it with a 30-day KV `expirationTtl` (`RESOLVED_FEEDBACK_TTL_SECONDS = 2,592,000` seconds).
+- Document the retention policies across `secid_OBSERVABILITY` (30-day TTL), `secid_FEEDBACK` (no TTL while open; 30-day TTL once resolved), and `secid_DEMAND` (3-month Analytics Engine retention) in `OPERATIONAL-RESOURCES.md` and `BACKUP-RESOURCES.md`.
+
+**Rejected alternatives:**
+- **Unconditional 30-day `expirationTtl` on `recordFeedback()`** — Silently drops untriaged feedback if triage is delayed.
+- **Never expire resolved feedback** — Accumulates resolved records indefinitely in KV.
+
+---
+
+## ADR-018: Return namespace-level metadata when `match_nodes` is empty (`[]`)
+
+**Date:** 2026-11-04
+**Status:** Accepted
+**Decision method:** AI decision (Gemini), reviewed by Codex (#11)
+
+**Goal:** Return useful organization/entity metadata for namespace-level queries (`secid:<type>/<namespace>`, e.g., `secid:entity/uaepass.ae`) when the namespace has no child `match_nodes`.
+
+**Context:** Entity registry files (`registry/entity/*.json`) store organization metadata at the namespace root (`official_name`, `common_name`, `alternate_names`, `notes`, `urls`, `wikidata`, `wikipedia`) and have `match_nodes: []`. Previously, `listSources()` in `src/resolver.ts` mapped over `ns.match_nodes`, returning `status: "found", results: []` whenever `match_nodes` was empty.
+
+**Decision:** When `ns.match_nodes.length === 0`, `listSources()` returns a single `RegistryResult` for `secid:<type>/<namespace>` containing the namespace's own metadata (`official_name`, `common_name`, `alternate_names`, `notes`, `urls`, `wikidata`, `wikipedia`, `source_count: 0`, and optional `country`). Add `"alternate_names"` to `UNTRUSTED_TEXT_KEYS` in `src/sanitize.ts` so contributor-authored alternate names are relocated under `registry_text_untrusted` across the MCP output boundary. Port the identical behavior to `SecID-Server-API` (`python/resolver.py`) for resolver parity.
+
+**Rejected alternatives:**
+- **Synthesize dummy `match_nodes` inside every `entity/*.json` file** — Duplicates namespace-level metadata across hundreds of entity files and violates the registry schema design where organization-only entities have `match_nodes: []`.
+
+---
+
+## ADR-019: MCP tool contract hashes (`_meta`) and `describe_changes` differential change log
+
+**Date:** 2026-11-04
+**Status:** Accepted
+**Decision method:** AI decision (Gemini), reviewed by Codex (#44)
+
+**Goal:** Let MCP clients and agent harnesses detect when SecID's MCP tool contracts or behavior have changed without re-diffing full JSON schemas on every session.
+
+**Context:** MCP's `notifications/tools/list_changed` only fires inside a live stateful session; stateless HTTP clients reconnecting across sessions have no cheap way to know whether a server's tools changed since their last session or why.
+
+**Decision:** Implement both complementary mechanisms proposed in #44 (`src/tool-changes.ts`, wired into `src/mcp.ts`):
+1. **Per-tool `_meta` in `tools/list`:** Every tool registered via `server.registerTool()` carries `_meta["io.cloudsecurityalliance.secid/contractHash"]` (`"sha256:<hex>"` computed at module initialization over the RFC 8785 JCS canonical JSON of `{ name, description, inputSchema, annotations }`, using the exact JSON Schema produced by `@modelcontextprotocol/sdk`) and `_meta["io.cloudsecurityalliance.secid/changed"]` (derived from the newest entry for that tool in `TOOL_CHANGE_LOG`).
+2. **`describe_changes` MCP tool:** Accepts optional `since` (RFC 3339 / ISO 8601 timestamp) and returns `{ toolset_hash, last_changed, since, tools, changes }`, filtering `changes` to entries strictly newer than `since`.
+
+**Rejected alternatives:**
+- **Hand-maintained static contract hashes** — Guaranteed to drift whenever a tool description or Zod schema is edited; computing hashes at startup from the actual registered definitions eliminates drift.
+- **Only `_meta` hashes without `describe_changes`** — Tells a client *that* a hash changed, but not *what* changed or why.
+- **Only `describe_changes` without `_meta` hashes** — Requires an extra `tools/call` round-trip even when the client already calls `tools/list`.

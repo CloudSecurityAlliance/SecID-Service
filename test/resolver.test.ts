@@ -224,6 +224,20 @@ describe("progressive resolution", () => {
     expect(data).toHaveProperty("official_name");
     expect(data).toHaveProperty("urls");
   });
+
+  it("type+namespace with empty match_nodes returns namespace-level entity metadata (#11)", () => {
+    const r = resolveSecID("secid:entity/uaepass.ae");
+    expect(r.status).toBe("found");
+    expect(r.results.length).toBe(1);
+    const entry = r.results[0] as RegistryResult;
+    expect(entry.secid).toBe("secid:entity/uaepass.ae");
+    expect(entry.data.official_name).toBe("UAE Pass");
+    expect(entry.data.common_name).toBe("UAE Pass");
+    expect(entry.data.source_count).toBe(0);
+    expect(Array.isArray(entry.data.urls)).toBe(true);
+    expect((entry.data.urls as Array<{ url: string }>).length).toBeGreaterThan(0);
+    expect(entry.data).toHaveProperty("notes");
+  });
 });
 
 // ── Manual Tests: RHSA (Colon in ID) ──
@@ -431,6 +445,18 @@ describe("qualifier filtering across cross-source and subpath resolution (#55)",
     const r = resolveSecID("secid:advisory/oracle.com/vm#OVMSA-2024-0001?parsability=structured");
     expect(r.status).toBe("not_found");
     expect(r.message).toContain('No results with parsability "structured"');
+  });
+
+  it("excludes URL-less RegistryResult notes when ?lang= is requested and reports unavailable language", () => {
+    const fr = resolveSecID("secid:regulation/recital-78?lang=fr");
+    expect(fr.status).toBe("found");
+    expect(fr.results.every((entry) => "url" in entry)).toBe(true);
+    expect((fr.results[0] as ResolutionResult).url).toContain("/FR/");
+
+    const xx = resolveSecID("secid:regulation/recital-78?lang=xx");
+    expect(xx.status).toBe("not_found");
+    expect(xx.results).toEqual([]);
+    expect(xx.message).toContain('Language "xx" not available');
   });
 });
 

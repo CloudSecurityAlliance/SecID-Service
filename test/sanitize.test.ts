@@ -105,4 +105,31 @@ describe("sanitizeResponseForMcp (F-04-01 MCP output labeling)", () => {
     expect(sanitizeResponseForMcp(null)).toBe(null);
     expect(sanitizeResponseForMcp("x")).toBe("x");
   });
+
+  it("relocates alternate_names on namespace-level entity results into registry_text_untrusted (#11)", () => {
+    const resp = {
+      secid_query: "secid:entity/anthropic.com",
+      status: "found",
+      results: [
+        {
+          secid: "secid:entity/anthropic.com",
+          data: {
+            official_name: "Anthropic PBC",
+            common_name: "Anthropic",
+            alternate_names: ["Anthropic AI"],
+            notes: "AI safety company",
+            urls: [{ type: "website", url: "https://www.anthropic.com" }],
+            source_count: 0,
+          },
+        },
+      ],
+    };
+    const out = sanitizeResponseForMcp(resp) as any;
+    const entry = out.results[0];
+    expect(entry.data.alternate_names).toBeUndefined();
+    expect(entry.data.registry_text_untrusted.alternate_names).toEqual(["Anthropic AI"]);
+    expect(entry.data.registry_text_untrusted.official_name).toBe("Anthropic PBC");
+    expect(entry.data.registry_text_untrusted.notes).toBe("AI safety company");
+    expect(entry.data.source_count).toBe(0);
+  });
 });
