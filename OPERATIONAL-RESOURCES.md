@@ -56,7 +56,7 @@ Index of recurring operational work for SecID-Service. Pairs with [BACKUP-RESOUR
 - **Health check:** `wrangler kv key list --namespace-id=c5cbc52b9a724433b3043efdf31857f4 | head` — non-empty list during error conditions, empty during clean operation
 - **Runbook:** Read individual entries with `wrangler kv key get --namespace-id=c5cbc52b9a724433b3043efdf31857f4 <key>`. UUIDv7 IDs sort lexicographically by time, so most recent errors are at the end of the listing
 - **Owner:** Kurt Seifried
-- **Notes:** 30-day KV TTL keeps error storage self-pruning. Philosophy doc: `CINO-Platform-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md`
+- **Notes:** 30-day KV TTL keeps error storage self-pruning. Philosophy doc: `CINO-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md`
 
 ## KV namespace — `secid_FEEDBACK`
 
