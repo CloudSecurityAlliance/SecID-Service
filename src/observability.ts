@@ -2,7 +2,7 @@
 // Structured error recording with UUIDv7 identifiers, stored in Cloudflare KV.
 // Errors are surfaced to callers via error_id; full diagnostics accessed via `wrangler kv`.
 // This is always-on production infrastructure, not debug mode. See:
-// CINO-Platform-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md
+// CINO-Engineering/research/operational-excellence/OPERATIONAL-PHILOSOPHY.md
 
 // ── UUIDv7 (RFC 9562 §5.7) ──
 // 48-bit ms timestamp + 74 random bits. Time-sortable, no dependencies.
