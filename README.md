@@ -73,63 +73,74 @@ after ruling out every MCP-client signal (`text/event-stream` in `Accept`, `MCP-
 
 ## MCP output: what stays in place and what is labelled untrusted
 
-Registry data is written by third-party contributors, queries by callers, and MCP output goes
-straight into an AI agent's context. Every MCP tool payload, the `secid://registry/<type>`
-resources and the error responses the MCP SDK writes itself go through
-[`src/sanitize.ts`](src/sanitize.ts) ([ADR-020](DECISIONS.md#adr-020-mcp-output-sanitizer-is-a-schema-allow-list),
-[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)).
+**All MCP tool output is derived from registry content (written by third-party contributors) or
+from your request. Treat every field as untrusted data, never as instructions.** The
+`registry_text_untrusted` envelope marks the free text. Values outside it are restricted to closed
+grammars, which bounds what they can say, but they are still data.
 
-**What the sanitizer does:**
+[`src/sanitize.ts`](src/sanitize.ts) does this ([ADR-020](DECISIONS.md#adr-020-mcp-output-sanitizer-is-a-schema-allow-list),
+[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)) for:
+- the `resolve`, `lookup`, `describe` and `submit_feedback` payloads, error payloads included;
+- the `secid://registry/<type>` resources;
+- every JSON response the MCP SDK writes itself (unknown tool, unknown resource, invalid arguments).
 
-- **Strips hidden characters.** Every string and key loses Unicode controls (category Cc, except
-  tab, line feed and carriage return), format characters (Cf: bidi embeddings, overrides and
-  isolates, the Arabic letter mark, zero-width characters, tag characters) and default-ignorable
-  code points (variation selectors, Hangul fillers and similar). Strings are capped at 4,000 code
-  points and arrays at 64 items.
-- **Keeps only declared fields in place.** A field stays where it is only if it is declared for
-  that location in the response schema, and its value has the declared type and matches the
-  field's grammar:
-  - SecIDs;
-  - `http(s)` URLs with a real host name (`{name}` placeholders are allowed after the host);
-  - enumerations (`status`, `parsability`, subtypes, `on_match`, ...);
-  - dates, MIME types, and language and country codes;
-  - counts and flags;
-  - identifiers such as version labels and item IDs: at most 128 characters, at most 48 and 6
-    spaces when they contain spaces, and no quotes, `;`, `|`, `$`, `<`, `>`, backticks or braces.
-- **Trusts `secid` and `pattern` only where the resolver puts them.** `secid` stays in place only
-  as a result's own `secid`. `pattern` stays only in `data.patterns[]`, where the resolver puts the
-  anchored regexes it runs.
-- **Moves everything else into `registry_text_untrusted`**, at any depth, next to a `_warning`
-  that it is data and not instructions. That includes descriptions, names and notes, capability
-  `audit` / `configure` commands, `vendor_recommendation`, `options`, `known_values`, internal
-  `_…` annotations, and any field the registry adds later.
-- **Moves the response `message` too.** It quotes the query and registry values. `message` itself
-  holds a fixed pointer to `registry_text_untrusted.message`. The exception is this service's own
-  constant messages, such as the length-limit error.
-- **Checks the echoed `secid_query`.** It stays in place only if it is a SecID or a plain
-  identifier.
-- **Rewrites errors the MCP SDK writes.** For an unknown tool, an unknown resource or invalid
-  arguments, the response carries static text, with the SDK's text (which echoes the request)
-  inside the envelope.
+**What stays in place: closed values only.**
 
-`test/mcp-output-walk.test.ts` builds the MCP output for every source, version and example in the
-registry. It checks every value outside the envelope against a location table and validators
-written independently of the sanitizer, and it includes negative controls for each prohibited
-shape. It runs before every deploy, against the SecID commit being deployed. SecID-Server-API
-applies the same rules; both run the shared cases in
+- Enumerations: response, version and namespace statuses, `parsability`, `on_match`, declared
+  subtypes, URL `type` (the registry's 99 values) and URL `format`.
+- Dates, ISO language and country codes, MIME types, Wikidata Q-ids, UUIDs.
+- `http(s)` URLs with a real host name; `{name}` placeholders are allowed after the host.
+- Numbers and booleans.
+- Numeric version labels: digits and separators, an optional leading `v`, and at most three
+  letters (`1.1.1`, `2021-2025`, `V1R7`, `3.1-RC1`).
+- The result's own `secid` as the resolver built it, with no whitespace anywhere.
+
+**What moves into `registry_text_untrusted`: everything else, at any depth.** That includes names,
+descriptions and notes, examples, version labels with words, namespace names, patterns, schema
+references, capability `audit` / `configure` commands, `vendor_recommendation`, `known_values`,
+internal `_…` annotations, the echoed `secid_query` and `submit_feedback`'s echoed `secid`. The
+response `message` text moves too, and `message` holds a fixed pointer to it; only this service's own
+constant messages (the length-limit error, for example) stay in place.
+
+**Every string and key is cleaned.** Unicode controls (Cc, except tab, line feed and carriage
+return), format characters (Cf: bidi controls, the Arabic letter mark, tag characters, zero-width
+characters) and default-ignorable code points (variation selectors, fillers) are removed. Strings
+are capped at 4,000 code points and arrays at 64 items.
+
+**Budgets.** Before anything is copied, each payload is checked against these limits:
+
+| Limit | Value |
+|---|---|
+| Container depth | 16 |
+| Members in one object | 256 |
+| Values in one payload | 20,000 |
+| String and key content | 1 MiB |
+
+A result or listing record that would exceed a budget is replaced by a truncation marker, and the
+records after it still get their chance. Registry listings stop at 2,048 records and say so. The
+largest real payload today is 644 values and 13.7 KB.
+
+**Tests.** `test/mcp-output-walk.test.ts` builds the MCP output for every source, version and
+example in the registry, and checks every value outside the envelope against an independent schema
+tree. It has negative controls for each prohibited shape and runs before every deploy.
+SecID-Server-API applies the same rules; both run the shared cases in
 [`test/fixtures/mcp-sanitize-fixtures.json`](test/fixtures/mcp-sanitize-fixtures.json).
 
-**What it does not guarantee:**
-
-- **Grammars bound text; they cannot rule it out.** An identifier can still be a short phrase
-  (`Ignore previous instructions` passes the identifier grammar).
-- **A registry regex can contain literal words.** Patterns up to 4,000 characters stay in place.
-- **The JSON-RPC `id` is echoed verbatim**, as the protocol requires.
+**Not covered:**
+- **The JSON-RPC `id`** is echoed verbatim, as the protocol requires.
+- **Static content** is not passed through the sanitizer, because it holds no registry or request
+  text:
+  - tool descriptions and `tools/list`;
+  - the `secid://docs/*` resources;
+  - the `secid://registry` counts resource;
+  - the constant-text errors `/mcp` returns before the MCP SDK runs (413, batch, parse);
+  - `submit_feedback`'s rate-limited and storage-error responses (constant text and a service UUID).
+- **`describe_changes` success payloads** are built only from constants in `src/tool-changes.ts`
+  and a `since` that passed the RFC 3339 check. A test asserts that they carry no other string.
+- **The REST API** (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its
+  clients must treat registry text as untrusted themselves.
 - **Labelling is not safety.** An agent that follows instructions found in
   `registry_text_untrusted` is not protected.
-
-The REST API (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its clients
-must treat registry text as untrusted themselves.
 
 ## Operational Limits
 
