@@ -582,5 +582,6 @@ closed grammars, and the tool descriptions tell clients that every field is stil
   - the charge counts content bytes, not serialized JSON bytes;
   - Python and TypeScript serialize some floats differently (`1.0` versus `1`).
 
-  Exploiting any of these needs oversized adversarial content in the registry itself, which arrives
-  only through reviewed, CI-gated PRs.
+  The four budget gaps need oversized adversarial content in the registry itself, which arrives
+  only through reviewed, CI-gated PRs. The float difference happens with ordinary values (`1.0`)
+  and only affects byte parity, not safety.
