@@ -68,7 +68,7 @@ const S = (check: (x: string) => boolean): Validator => (v) => typeof v === "str
 const V = {
   resultSecid: S(resultSecid),
   url: S((x) => x.length <= 2048 && URL_RE.test(x)),
-  version: S((x) => x.length <= 32 && /^[vV]?[0-9]{1,8}(?:[._-][0-9]{1,8}){0,5}(?:[._-]?[A-Za-z]{1,3}[0-9]{0,4})?$/.test(x)),
+  version: S((x) => x.length <= 32 && /^[vV]?[0-9]{1,8}(?:[._-][0-9]{1,8}){0,5}(?:R[0-9]{1,4}|[._-]?(?:RC|rc|rev|alpha|beta|a|b)[0-9]{1,4})?$/.test(x)),
   date: S((x) => /^[0-9]{4}(?:-[0-9]{2}(?:-[0-9]{2})?)?$/.test(x)),
   mime: S((x) => /^(?:application|audio|font|image|message|model|multipart|text|video)\/[a-z0-9][a-z0-9.+-]{0,62}$/.test(x)),
   lang: S((x) => /^[a-z]{2,3}$/.test(x)),
@@ -89,7 +89,7 @@ const V = {
   onMatch: S(set("resolve", "redirect")),
   secidType: S((x) => TYPES.has(x)),
   pointer: S((x) => x === POINTER),
-  num: (v: unknown) => typeof v === "number",
+  num: (v: unknown) => typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= 9007199254740991 && !Object.is(v, -0),
   bool: (v: unknown) => typeof v === "boolean",
 };
 // URL types: the registry's own vocabulary (checked against the registry below).
@@ -259,6 +259,10 @@ const NEGATIVE_CONTROLS: Array<[string, unknown]> = [
   ["array where a scalar is declared", { status: "found", results: [{ url: ["https://x.example/"] }] }],
   ["envelope without _warning", { status: "found", results: [{ [ENVELOPE]: { note: "x" } }] }],
   ["undeclared subtype", { status: "found", results: [{ data: { subtypes: ["ignore-previous-instructions"] } }] }],
+  ["word after digits in a version (1-RUN)", { status: "found", results: [{ data: { versions_available: [{ version: "1-RUN" }] } }] }],
+  ["letters glued to digits (0BEY)", { status: "found", results: [{ data: { versions_available: [{ aliases: [{ label: "0BEY" }] }] } }] }],
+  ["number beyond 2^53 - 1", { status: "found", results: [{ weight: 2 ** 53 }] }],
+  ["infinite number", { status: "found", results: [{ data: { source_count: Infinity } }] }],
 ];
 
 describe("MCP output: registry walk (#67)", () => {

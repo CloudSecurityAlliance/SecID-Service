@@ -465,30 +465,36 @@ EXAMPLES:
   secid:disclosure                                  → list all 502 disclosure namespaces (CVE Program partners)
 
 RESPONSE FORMAT:
-  { secid_query, status, results[], message? }
+  { status, results[], message?, registry_text_untrusted? }
+  The top-level registry_text_untrusted holds the echoed query (secid_query) and the
+  text of any message; message itself then holds only a pointer to that text.
 
 STATUS VALUES:
   found     — exact match, results contain URLs
   corrected — server fixed the input (e.g. moved identifier to correct subpath), results contain URLs
   related   — partial match, results contain registry data (may need @version)
-  not_found — nothing matched, message explains why. If a source/org that should
-              exist is missing, call the submit_feedback tool (category
+  not_found — nothing matched; registry_text_untrusted.message explains why. If a source/org
+              that should exist is missing, call the submit_feedback tool (category
               "missing-namespace") — that is how new sources get requested.
-  error     — unparseable input, message explains how to fix
+  error     — unparseable input; registry_text_untrusted.message explains how to fix
 
-TWO RESULT TYPES (check which fields are present):
-  Resolution: { secid, weight, url }  — item resolved to URL(s)
-  Registry:   { secid, data }         — browsing/discovery information
+RESULT SHAPES (check which fields are present):
+  Resolution: { secid, weight, url, content_type?, lang?, parsability? } — item resolved to URL(s)
+  Registry:   { secid, data } — browsing/discovery information. data holds closed values
+              (urls[], versions_available[], counts, subtypes, country); names, descriptions,
+              examples, patterns and other free text are in data.registry_text_untrusted.
+  Marker:     { registry_text_untrusted: { _truncated } } — a result left out because the
+              response would have exceeded its size budget.
+  Any result or object may also carry registry_text_untrusted with its free-text fields.
 
 WEIGHTS: 100=authoritative primary, 80=high-quality secondary, 50=alternative/indirect.
 Multiple results are normal — same resource at different URLs, sorted by weight descending.
 
 FORMAT METADATA: Resolution results may include optional fields describing what you get at the URL:
   - parsability: "structured" (machine-readable with defined schema) or "scraped" (HTML/unstructured)
-  - schema: SecID reference to the data schema (e.g., secid:reference/cve.org/cve-schema@5.2.0)
-  - parsing_instructions: SecID reference to a parsing guide document
-  - auth: how to access the URL (e.g., "none", "GitHub token for higher rate limits")
   - content_type: MIME type (e.g., "application/json", "text/html")
+  - in the result's registry_text_untrusted: schema (SecID reference to the data schema, e.g.
+    secid:reference/cve.org/cve-schema@5.2.0), parsing_instructions, auth (how to access the URL)
 Use ?parsability=structured to filter for only machine-readable results.
 
 CROSS-SOURCE SEARCH: Omit namespace to search all sources of that type.
@@ -572,11 +578,12 @@ VULNERABILITY REPORTING USE CASE:
     lookup(type="disclosure", identifier="cisco.com")    → Cisco's CNA contact + scope
     lookup(type="disclosure", identifier="apple.com")    → Apple's CNA (product-security@apple.com)
     lookup(type="disclosure", identifier="google.com")   → Google's 5 CNA programs (Android, Cloud, Devices, Chrome, main)
-  Results include scope (what products are covered), contacts (email/web form), and disclosure policy URLs.
+  Results include scope (what products are covered), contacts (email/web form), and disclosure policy URLs
+  (scope and contacts are free text, in data.registry_text_untrusted).
   502 CVE Program partners are registered. If no CNA covers the product, MITRE is the CNA of Last Resort:
     lookup(type="disclosure", identifier="mitre.org")    → MITRE CNA-LR for uncovered products
 
-RESPONSE: Same format as resolve — { secid_query, status, results[], message? }
+RESPONSE: Same format as resolve — { status, results[], message?, registry_text_untrusted? }
 Results from different sources will have different secid values showing where each match was found.
 Sort by weight descending — highest weight is the most authoritative source.
 
@@ -606,8 +613,12 @@ DISCLOSURE / CNA DISCOVERY:
 
 If you pass a SecID with a subpath (e.g. secid:advisory/mitre.org/cve#CVE-2024-1234), the subpath is stripped and you get source-level info instead of resolution.
 
-RESPONSE: Same envelope — { secid_query, status, results[] }
-Results contain { secid, data } with registry metadata (official_name, patterns, examples, urls).
+RESPONSE: Same envelope as resolve — { status, results[], message?, registry_text_untrusted? }
+Results contain { secid, data }: closed values (urls, versions_available, counts, subtypes, country) in data;
+official_name, description, patterns, examples and other free text in data.registry_text_untrusted.
+A type listing's data.namespaces[] entries hold source_count, subtypes and country, with each namespace's
+name in that entry's registry_text_untrusted. A result over the size budget is replaced by a marker
+{ registry_text_untrusted: { _truncated } }.
 
 Use this to help users construct valid SecID strings or to explore what the registry covers.
 
@@ -628,7 +639,7 @@ ARGUMENTS:
   message        what's missing/wrong/suggested, with evidence
   suggested_urls optional supporting URLs (homepage, advisory feed, the correct link)
 
-RESPONSE: { status: "received", feedback_id, category, secid }. Submissions are stored for AI-assisted triage; they do not change the registry immediately.`;
+RESPONSE: { status: "received", feedback_id, category, message, registry_text_untrusted: { secid } }. Submissions are stored for AI-assisted triage; they do not change the registry immediately.`;
 
 const DESCRIBE_CHANGES_DESCRIPTION = `Report what has changed across SecID's MCP tools since a timestamp, along with per-tool contract hashes and the overall toolset hash (#44).
 

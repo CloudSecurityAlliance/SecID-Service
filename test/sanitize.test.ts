@@ -1,6 +1,14 @@
 import { describe, it, expect } from "vitest";
 import {
   capString,
+  ENVELOPE_BYTES,
+  LITERAL_BYTES,
+  MAX_SAFE_NUMBER,
+  MAX_SCAN_CHARS,
+  NUMBER_BYTES,
+  NUMBER_MARKER,
+  POINTER_BYTES,
+  SLOT_BYTES,
   FEEDBACK_CATEGORIES,
   MAX_ARRAY_ITEMS,
   MAX_DEPTH,
@@ -24,6 +32,10 @@ import {
   VERSION_STATUSES,
 } from "../src/sanitize";
 import { TYPE_REGISTRY } from "../src/type-registry";
+import { parseSecID } from "../src/parser";
+import { resolve } from "../src/resolver";
+import type { Registry } from "../src/types";
+import { expandFixture } from "./helpers/fixture-macros";
 import fixturesText from "./fixtures/mcp-sanitize-fixtures.json?raw";
 
 // Special characters by code point, so this test's source stays pure ASCII.
@@ -76,15 +88,16 @@ describe("shared MCP sanitizer fixtures (parity with SecID-Server-API)", () => {
 
   for (const c of doc.cases) {
     it(c.name, () => {
+      const input = expandFixture(c.input);
       const got =
         c.fn === "record"
-          ? sanitizeRecordForMcp(c.input)
+          ? sanitizeRecordForMcp(input)
           : c.fn === "listing"
-            ? sanitizeListingForMcp(c.input)
+            ? sanitizeListingForMcp(input)
             : c.fn === "jsonrpc"
-              ? sanitizeJsonRpcForMcp(c.input)
-              : sanitizeResponseForMcp(c.input, { serviceMessage: c.service_message === true });
-      expect(normalize(JSON.parse(JSON.stringify(got ?? null)))).toEqual(normalize(c.expected));
+              ? sanitizeJsonRpcForMcp(input)
+              : sanitizeResponseForMcp(input, { serviceMessage: c.service_message === true });
+      expect(normalize(JSON.parse(JSON.stringify(got ?? null)))).toEqual(normalize(expandFixture(c.expected)));
     });
   }
 
@@ -101,6 +114,9 @@ describe("shared MCP sanitizer fixtures (parity with SecID-Server-API)", () => {
     expect({
       max_field_chars: MAX_FIELD_CHARS, max_array_items: MAX_ARRAY_ITEMS, max_listing_items: MAX_LISTING_ITEMS,
       max_depth: MAX_DEPTH, max_members: MAX_MEMBERS, max_nodes: MAX_NODES, max_output_bytes: MAX_OUTPUT_BYTES,
+      max_scan_chars: MAX_SCAN_CHARS, number_bytes: NUMBER_BYTES, literal_bytes: LITERAL_BYTES,
+      envelope_bytes: ENVELOPE_BYTES, slot_bytes: SLOT_BYTES, pointer_bytes: POINTER_BYTES,
+      max_safe_number: MAX_SAFE_NUMBER, number_marker: NUMBER_MARKER,
     }).toEqual(v.budgets);
   });
 
@@ -214,5 +230,47 @@ describe("budgets", () => {
     const out = sanitizeListingForMcp({ type: "advisory", namespaces }) as any;
     expect(out.namespaces.length).toBe(MAX_LISTING_ITEMS);
     expect(out.registry_text_untrusted._truncated).toBe(TRUNCATED);
+  });
+});
+
+// Review round 3 (P2-1, P2-2): output is charged by what cleaning keeps; one numeric rule.
+describe("retained-byte accounting and the numeric rule", () => {
+  it("through the real resolver: 256 known_values of 4,000 NULs then 4,000 emoji cannot emit megabytes", () => {
+    const NUL = String.fromCodePoint(0);
+    const EMOJI = String.fromCodePoint(0x1f600);
+    const known: Record<string, string> = {};
+    for (let i = 0; i < 256; i++) known[`k${i}`] = NUL.repeat(4000) + EMOJI.repeat(4000);
+    const registry = {
+      advisory: {
+        "x.example": {
+          schema_version: "1.0", namespace: "x.example", type: "advisory", status: "draft", status_notes: null,
+          official_name: "X", common_name: null, alternate_names: null, notes: null, wikidata: null, wikipedia: null,
+          urls: [], match_nodes: [{ patterns: ["(?i)^src$"], description: "Source", weight: 100, data: { known_values: known } }],
+        },
+      },
+    } as unknown as Registry;
+    const raw = resolve(parseSecID("secid:advisory/x.example/src", registry), registry);
+    const out = sanitizeResponseForMcp(raw) as any;
+    expect(JSON.stringify(out).length).toBeLessThan(MAX_OUTPUT_BYTES + 64 * SLOT_BYTES);
+    expect(out.results[0].registry_text_untrusted._truncated).toBe(TRUNCATED);
+  });
+
+  it("NaN, Infinity, huge and unsafe integers become the number marker; -0 becomes 0", () => {
+    const out = sanitizeResponseForMcp({
+      status: "found",
+      results: [{ secid: "secid:advisory/x", data: { notes: [NaN, Infinity, -Infinity, 2 ** 53, -(2 ** 53), 1e300, -0, 2 ** 53 - 1, 0.5] } }],
+    }) as any;
+    const notes = out.results[0].data.registry_text_untrusted.notes;
+    expect(notes).toEqual([NUMBER_MARKER, NUMBER_MARKER, NUMBER_MARKER, NUMBER_MARKER, NUMBER_MARKER, NUMBER_MARKER, 0, 2 ** 53 - 1, 0.5]);
+    expect(Object.is(notes[6], -0)).toBe(false);
+    const weight = sanitizeResponseForMcp({ status: "found", results: [{ secid: "secid:advisory/x", weight: Infinity }] }) as any;
+    expect(weight.results[0].registry_text_untrusted.weight).toBe(NUMBER_MARKER);
+  });
+
+  it("a 64x64 array of 4,000-digit integers stays small", () => {
+    const row = `[${Array.from({ length: 64 }, () => "9".repeat(4000)).join(",")}]`;
+    const big = JSON.parse(`[${Array.from({ length: 64 }, () => row).join(",")}]`);
+    const out = sanitizeResponseForMcp({ status: "found", results: [{ secid: "secid:advisory/x", data: { notes: big } }] });
+    expect(JSON.stringify(out).length).toBeLessThan(200_000);
   });
 });
