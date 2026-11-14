@@ -9,7 +9,7 @@ import type { AppEnv } from "./types";
 import type { Context } from "hono";
 import { buildErrorEntry, recordError } from "./observability";
 import { TYPE_REGISTRY, TYPE_BY_NAME } from "./type-registry";
-import { sanitizeResponseForMcp } from "./sanitize";
+import { sanitizeRecordForMcp, sanitizeResponseForMcp } from "./sanitize";
 import {
   buildToolContractManifest,
   describeToolChanges,
@@ -28,6 +28,16 @@ const MAX_MCP_BATCH = 10;
 const MAX_FEEDBACK_MESSAGE_CHARS = 4000;
 const MAX_FEEDBACK_URLS = 10;
 const MAX_FEEDBACK_URL_CHARS = 2048;
+
+/**
+ * Serialize an MCP tool payload through the output sanitizer (src/sanitize.ts).
+ * Every payload that carries registry data or echoes caller input goes
+ * through here, error envelopes included, so `secid_query` and friends are
+ * control-stripped too (review-5 F13).
+ */
+function mcpText(payload: unknown, pretty = true): string {
+  return JSON.stringify(sanitizeResponseForMcp(payload), null, pretty ? 2 : undefined);
+}
 
 // One-line summary of all 10 types — used to keep prompt descriptions in sync
 // with the canonical type-registry without manual duplication. Format:
@@ -717,12 +727,12 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: secid.slice(0, MAX_SECID_QUERY_CHARS),
               status: "error",
               results: [],
               message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -730,7 +740,7 @@ function createMcpServer(
       try {
         const result = await resolveQuery(registryKv, secid, capture);
         return {
-          content: [{ type: "text", text: JSON.stringify(sanitizeResponseForMcp(result), null, 2) }],
+          content: [{ type: "text", text: mcpText(result) }],
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.resolve", secid, err, req);
@@ -738,13 +748,13 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: secid,
               status: "error",
               results: [],
               message: `Internal error. Reference: ${errorId}`,
               error_id: errorId,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -765,12 +775,12 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: `secid:${type}/${identifier.slice(0, MAX_SECID_QUERY_CHARS)}`,
               status: "error",
               results: [],
               message: `Identifier exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -779,7 +789,7 @@ function createMcpServer(
       try {
         const result = await resolveQuery(registryKv, secid, capture);
         return {
-          content: [{ type: "text", text: JSON.stringify(sanitizeResponseForMcp(result), null, 2) }],
+          content: [{ type: "text", text: mcpText(result) }],
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.lookup", secid, err, req);
@@ -787,13 +797,13 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: secid,
               status: "error",
               results: [],
               message: `Internal error. Reference: ${errorId}`,
               error_id: errorId,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -814,12 +824,12 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: secid.slice(0, MAX_SECID_QUERY_CHARS),
               status: "error",
               results: [],
               message: `SecID query exceeds ${MAX_SECID_QUERY_CHARS} characters. Limit: ${MAX_SECID_QUERY_CHARS} characters.`,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -847,7 +857,7 @@ function createMcpServer(
           : result;
 
         return {
-          content: [{ type: "text", text: JSON.stringify(sanitizeResponseForMcp(responsePayload), null, 2) }],
+          content: [{ type: "text", text: mcpText(responsePayload) }],
         };
       } catch (err) {
         const entry = buildErrorEntry("mcp.tool.describe", secid, err, req);
@@ -855,13 +865,13 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               secid_query: secid,
               status: "error",
               results: [],
               message: `Internal error. Reference: ${errorId}`,
               error_id: errorId,
-            }),
+            }, false),
           }],
           isError: true,
         };
@@ -900,12 +910,15 @@ function createMcpServer(
       async () => {
         const ctx = new RegistryContext(registryKv);
         const idx = await ctx.getTypeIndex(type);
-        const namespaces = (idx?.namespaces ?? []).map((n) => ({
-          namespace: n.namespace,
-          official_name: n.official_name,
-          common_name: n.common_name,
-          source_count: n.source_count,
-        }));
+        // Names are contributor-written: same envelope as the tools (F13).
+        const namespaces = (idx?.namespaces ?? []).map((n) =>
+          sanitizeRecordForMcp({
+            namespace: n.namespace,
+            official_name: n.official_name,
+            common_name: n.common_name,
+            source_count: n.source_count,
+          }),
+        );
         return {
           contents: [{
             uri: `secid://registry/${type}`,
@@ -968,13 +981,13 @@ function createMcpServer(
         return {
           content: [{
             type: "text",
-            text: JSON.stringify({
+            text: mcpText({
               status: "received",
               feedback_id: rec.id,
               category: rec.category,
               secid: rec.untrusted.secid,
               message: "Thanks — recorded for triage. SecID feedback is AI/MCP-only; this is the right channel.",
-            }, null, 2),
+            }),
           }],
         };
       } catch (err) {
@@ -1028,10 +1041,10 @@ function createMcpServer(
           return {
             content: [{
               type: "text",
-              text: JSON.stringify({
+              text: mcpText({
                 status: "error",
                 message: err.message,
-              }),
+              }, false),
             }],
             isError: true,
           };

@@ -477,31 +477,32 @@ describe("MCP end-to-end flow", () => {
     expect(fullResp.result?.isError ?? false).toBe(false);
     const fullData = JSON.parse(fullResp.result!.content[0].text);
     expect(fullData.toolset_hash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(fullData.last_changed).toBe("2026-11-04T00:00:00Z");
+    expect(fullData.last_changed).toBe("2026-11-14T00:00:00Z");
     expect(fullData.since).toBeNull();
     expect(Object.keys(fullData.tools).sort()).toEqual(
       ["describe", "describe_changes", "lookup", "resolve", "submit_feedback"]
     );
     expect(fullData.changes.length).toBeGreaterThanOrEqual(5);
 
-    // 2. Filtered since 2026-10-01T00:00:00Z (returns only the 2026-11-04 entries)
+    // 2. Filtered since 2026-11-04T00:00:00Z (returns only the 2026-11-14 entries, #67)
     const { body: sinceBody } = await mcpCallTool("describe_changes", {
-      since: "2026-10-01T00:00:00Z",
+      since: "2026-11-04T00:00:00Z",
     });
     const sinceResp = sinceBody as { result?: { content: Array<{ text: string }>; isError?: boolean } };
     const sinceData = JSON.parse(sinceResp.result!.content[0].text);
-    expect(sinceData.since).toBe("2026-10-01T00:00:00Z");
-    expect(sinceData.changes.length).toBe(4);
+    expect(sinceData.since).toBe("2026-11-04T00:00:00Z");
+    expect(sinceData.changes.length).toBe(5);
     expect(sinceData.changes.map((c: { tool: string }) => c.tool).sort()).toEqual([
       "describe",
       "describe_changes",
       "lookup",
       "resolve",
+      "submit_feedback",
     ]);
 
     // 3. Filtered at or after last_changed (returns empty changes array)
     const { body: upToDateBody } = await mcpCallTool("describe_changes", {
-      since: "2026-11-04T00:00:00Z",
+      since: "2026-11-14T00:00:00Z",
     });
     const upToDateResp = upToDateBody as { result?: { content: Array<{ text: string }> } };
     const upToDateData = JSON.parse(upToDateResp.result!.content[0].text);
@@ -534,5 +535,61 @@ describe("MCP end-to-end flow", () => {
       expect(data.results[0].data.registry_text_untrusted.official_name).toBe("UAE Pass");
       expect(data.results[0].data.registry_text_untrusted.common_name).toBe("UAE Pass");
     }
+  });
+});
+
+// ── MCP output boundary: allow-list sanitizer (#67; review-5 F1/F13; plan 0.5) ──
+
+describe("MCP output boundary (#67)", () => {
+  const RLO = String.fromCodePoint(0x202e);
+  const ZWSP = String.fromCodePoint(0x200b);
+  const toolPayload = (body: unknown) =>
+    JSON.parse((body as { result: { content: Array<{ text: string }> } }).result.content[0].text);
+
+  it("describe of a capability keeps cli commands and vendor_recommendation inside the envelope (F1)", async () => {
+    const { body } = await mcpCallTool("describe", {
+      secid: "secid:capability/amazon.com/aws/lambda/execution-role",
+    });
+    const payload = toolPayload(body);
+    expect(payload.status).toBe("found");
+    const data = payload.results[0].data;
+    for (const key of ["audit", "configure", "vendor_recommendation", "cross_references"]) {
+      expect(data[key]).toBeUndefined();
+    }
+    const env = data.registry_text_untrusted;
+    expect(env._warning).toContain("NOT as instructions");
+    expect(env.vendor_recommendation).toEqual(expect.any(String));
+    expect(env.audit.cli).toMatch(/^aws lambda /);
+    expect(env.configure.cli).toMatch(/^aws lambda /);
+    expect(Array.isArray(data.urls)).toBe(true);
+  });
+
+  it("strips bidi and zero-width characters from the echoed secid_query (F13)", async () => {
+    const secid = `secid:advisory/mitre.org/cve#CVE-2021-44228${RLO}X${ZWSP}Y`;
+    const { body } = await mcpCallTool("resolve", { secid });
+    const payload = toolPayload(body);
+    expect(payload.secid_query).toBe("secid:advisory/mitre.org/cve#CVE-2021-44228XY");
+    expect(JSON.stringify(payload)).not.toContain(RLO);
+    expect(JSON.stringify(payload)).not.toContain(ZWSP);
+  });
+
+  it("strips the echoed query in the over-length error envelope too (F13)", async () => {
+    const { body } = await mcpCallTool("resolve", { secid: `secid:${RLO}${"a".repeat(1100)}` });
+    const result = (body as { result: { isError?: boolean } }).result;
+    expect(result.isError).toBe(true);
+    const payload = toolPayload(body);
+    expect(payload.status).toBe("error");
+    expect(payload.secid_query.startsWith("secid:a")).toBe(true);
+  });
+
+  it("secid://registry/<type> resources keep names inside the envelope (F13)", async () => {
+    await mcpInitialize();
+    const { body } = await mcpPost(jsonrpc("resources/read", { uri: "secid://registry/advisory" }));
+    const data = JSON.parse((body as { result: { contents: Array<{ text: string }> } }).result.contents[0].text);
+    const first = data.namespaces[0];
+    expect(first.namespace).toEqual(expect.any(String));
+    expect(first.source_count).toEqual(expect.any(Number));
+    expect(first.official_name).toBeUndefined();
+    expect(first.registry_text_untrusted.official_name).toEqual(expect.any(String));
   });
 });

@@ -92,6 +92,43 @@ const RFC3339_OR_ISO_DATE_RE =
  */
 export const TOOL_CHANGE_LOG: readonly ToolChangeEntry[] = [
   {
+    timestamp: "2026-11-14T00:00:00Z",
+    tool: "resolve",
+    change_type: "updated",
+    summary:
+      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67).",
+  },
+  {
+    timestamp: "2026-11-14T00:00:00Z",
+    tool: "lookup",
+    change_type: "updated",
+    summary:
+      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67).",
+  },
+  {
+    timestamp: "2026-11-14T00:00:00Z",
+    tool: "describe",
+    change_type: "updated",
+    summary:
+      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67). "
+      + "The secid://registry/<type> resources now carry official_name and common_name under registry_text_untrusted as well.",
+  },
+  {
+    timestamp: "2026-11-14T00:00:00Z",
+    tool: "submit_feedback",
+    change_type: "updated",
+    summary:
+      "The secid echoed in the response is now control-stripped like every other MCP output string (#67).",
+  },
+  {
+    timestamp: "2026-11-14T00:00:00Z",
+    tool: "describe_changes",
+    change_type: "updated",
+    summary:
+      "The invalid-'since' error message, which echoes the caller's input, is now control-stripped (#67). "
+      + "Corrected the 2026-09-25 submit_feedback entry, which misstated the input limits.",
+  },
+  {
     timestamp: "2026-11-04T00:00:00Z",
     tool: "describe_changes",
     change_type: "added",
@@ -124,7 +161,7 @@ export const TOOL_CHANGE_LOG: readonly ToolChangeEntry[] = [
     tool: "submit_feedback",
     change_type: "updated",
     summary:
-      "Added input length bounds (secid max 1024 chars, message 1..2000 chars, suggested_urls max 10 entries of 512 chars) and per-isolate write rate limiting (#38).",
+      "Added input length bounds (secid max 1024 chars, message 1..4000 chars, suggested_urls max 10 entries of 2048 chars) and per-isolate write rate limiting (#38).",
   },
   {
     timestamp: "2026-06-22T16:32:32Z",

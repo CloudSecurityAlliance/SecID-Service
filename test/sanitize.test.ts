@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { sanitizeResponseForMcp } from "../src/sanitize";
+import { sanitizeRecordForMcp, sanitizeResponseForMcp, STRUCTURAL_KEYS } from "../src/sanitize";
+import fixturesText from "./fixtures/mcp-sanitize-fixtures.json?raw";
 
 // Special chars via fromCodePoint so this test's source stays pure ASCII.
 const ESC = String.fromCodePoint(0x1b);
@@ -131,5 +132,69 @@ describe("sanitizeResponseForMcp (F-04-01 MCP output labeling)", () => {
     expect(entry.data.registry_text_untrusted.official_name).toBe("Anthropic PBC");
     expect(entry.data.registry_text_untrusted.notes).toBe("AI safety company");
     expect(entry.data.source_count).toBe(0);
+  });
+});
+
+// ── Shared fixtures (#67) ──
+// test/fixtures/mcp-sanitize-fixtures.json is the canonical copy; SecID-Server-API
+// keeps an identical copy (python/fixtures/) and runs the same cases against
+// python/sanitize.py, so both resolvers emit identical MCP output. Loaded as
+// text so JSON.parse keeps "__proto__" as an own property.
+
+interface FixtureCase {
+  name: string;
+  fn: "response" | "record";
+  input: unknown;
+  expected: unknown;
+}
+
+describe("shared MCP sanitizer fixtures (parity with SecID-Server-API)", () => {
+  const doc = JSON.parse(fixturesText) as { cases: FixtureCase[] };
+
+  it("has cases", () => {
+    expect(doc.cases.length).toBeGreaterThanOrEqual(20);
+  });
+
+  for (const c of doc.cases) {
+    it(c.name, () => {
+      const got =
+        c.fn === "record"
+          ? sanitizeRecordForMcp(c.input as Record<string, unknown>)
+          : sanitizeResponseForMcp(c.input);
+      // Compare as JSON values: the MCP payload is JSON text.
+      expect(JSON.parse(JSON.stringify(got))).toEqual(c.expected);
+    });
+  }
+
+  it("never lets a registry __proto__ key reach the prototype", () => {
+    const input = JSON.parse('{"results":[{"secid":"s","data":{"__proto__":{"polluted":true}}}]}');
+    const out = sanitizeResponseForMcp(input) as any;
+    const envelope = out.results[0].data.registry_text_untrusted;
+    expect(Object.getPrototypeOf(envelope)).toBe(Object.prototype);
+    expect(Object.hasOwn(envelope, "__proto__")).toBe(true);
+    expect(({} as any).polluted).toBeUndefined();
+  });
+});
+
+describe("allow-list (#67)", () => {
+  it("keeps the deny-listed prose keys of the old design off the allow-list", () => {
+    for (const k of [
+      "description", "notes", "note", "official_name", "common_name", "alternate_names", "auth",
+      "contacts", "contact", "scope", "policy", "disclosure_policy", "version_disambiguation",
+      "unversioned_behavior", "parsing_instructions",
+    ]) {
+      expect(STRUCTURAL_KEYS.has(k)).toBe(false);
+    }
+  });
+
+  it("moves an unknown registry field into the envelope by default", () => {
+    const out = sanitizeResponseForMcp({
+      status: "found",
+      results: [{ secid: "s", data: { brand_new_field: "anything at all", audit: { cli: "rm -rf /" } } }],
+    }) as any;
+    expect(out.results[0].data.brand_new_field).toBeUndefined();
+    expect(out.results[0].data.audit).toBeUndefined();
+    expect(out.results[0].data.registry_text_untrusted.brand_new_field).toBe("anything at all");
+    expect(out.results[0].data.registry_text_untrusted.audit).toEqual({ cli: "rm -rf /" });
   });
 });
