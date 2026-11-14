@@ -10,3 +10,10 @@ declare module "cloudflare:test" {
     secid_DEMAND: AnalyticsEngineDataset;
   }
 }
+
+// Vite `?raw` imports (used to load JSON fixtures as text, so JSON.parse keeps
+// keys such as "__proto__" as plain own properties).
+declare module "*?raw" {
+  const text: string;
+  export default text;
+}

@@ -454,3 +454,134 @@ post-deploy gate (#41) re-verifies it on every deploy.
 - **Hand-maintained static contract hashes** — Guaranteed to drift whenever a tool description or Zod schema is edited; computing hashes at startup from the actual registered definitions eliminates drift.
 - **Only `_meta` hashes without `describe_changes`** — Tells a client *that* a hash changed, but not *what* changed or why.
 - **Only `describe_changes` without `_meta` hashes** — Requires an extra `tools/call` round-trip even when the client already calls `tools/list`.
+
+---
+
+## ADR-020: MCP output sanitizer is a schema allow-list
+
+**Date:** 2026-11-14
+**Status:** Accepted (pending merge of #68)
+**Decision method:** AI decision (Claude, implementer for the SecID governing agent), following the
+fix proposed by the 2026-11-13 independent code-security review (CSA-Internal-Governance/SecID
+`reviews/2026-11-13/review-5-code-security.md`, F1 and F13; plan item 0.5). Revised twice the same
+day after Codex's cross-vendor reviews of #68:
+- **Round 1** (`9de9197`): a key-name allow-list let prose through.
+- **Round 2** (`6fe663d`): short instructions still passed as identifiers; traversal was
+  unbounded; truncation retained its input; the detector had blind spots; the docs overstated the
+  guarantees.
+- **Round 3** (`fc97663`): the byte budget counted raw characters rather than retained ones;
+  Python kept arbitrarily large integers; the version grammar admitted words (`1-RUN`, `0BEY`);
+  the tool descriptions still described the old shape.
+
+The round-2 fix for the first point follows the governing agent's decision: move all free-form
+values into the envelope and keep only closed grammars in place. Review records are on #68.
+Supersedes the `UNTRUSTED_TEXT_KEYS` deny-list, including the `alternate_names` addition in ADR-018.
+
+**Goal:** Registry text written by third-party contributors and caller text echoed back reach MCP
+clients only inside the `registry_text_untrusted` envelope. Values outside the envelope come from
+closed grammars, and the tool descriptions tell clients that every field is still untrusted data.
+
+**Context:**
+- **Production (re-checked read-only on 2026-11-14).** `describe` of
+  `secid:capability/amazon.com/aws/lambda/execution-role` returned shell commands and
+  `vendor_recommendation` outside the envelope. The echoed `secid_query` kept U+202E and U+200B.
+- **Why grammar is not enough.** Any grammar loose enough for real identifiers ("Annex A",
+  "LEGGI ED ALTRI ATTI NORMATIVI: 2 (1)") also admits "Ignore previous instructions".
+- **Measured over the registry walk** (13,061 queries; the walk test's independent detector):
+  - `main`: 35,133 violations;
+  - `6fe663d`: 22,806;
+  - `fc97663`: 35;
+  - this version: 0.
+
+**Decision:**
+1. **Budgets first.** Before copying, a measuring pass checks each payload against these limits:
+   container depth 16; 256 members per object; 20,000 values; 1 MiB of output; 4 Mi code points
+   scanned.
+   - **Output is charged for what will be emitted:** the UTF-8 bytes each string and key keeps after
+     cleaning; 32 bytes per number and 5 per `true`/`false`/`null`; the envelope each object may
+     gain; the marker each list slot may become; the message pointer.
+   - **The scan budget** bounds the work of measuring strings that keep little, such as a long run
+     of stripped characters.
+   - **The verdict does not depend on visit order.** Results and listing records are charged in
+     order, and one that does not fit is replaced by a truncation marker. Listings stop at 2,048
+     records and say so.
+   - **Exact boundary:** a shared fixture checks that a payload charged exactly 1,048,576 bytes
+     fits and one byte more does not.
+2. **Characters.** Strip category Cc (except TAB, LF, CR), category Cf, and
+   Default_Ignorable_Code_Point (Unicode 16.0; 29 frozen code-point ranges in both
+   implementations). Cap strings at 4,000 code points, built as an independent copy so a large
+   input is never kept alive; cap arrays at 64.
+3. **Closed grammars only.** `RESPONSE_SCHEMA` declares per location the fields that may stay,
+   with a JSON type and a closed grammar:
+   - enumerations;
+   - dates, ISO language and country codes, MIME types, Q-ids, UUIDs;
+   - http(s) URLs with an ASCII host;
+   - numbers and booleans. A number stays only if finite and at most 2^53 − 1 in magnitude, so
+     both languages print the same value. `-0` becomes `0`; anything else becomes the string
+     `"[omitted: number out of range]"`;
+   - numeric version labels: dotted numbers with an optional `v`, optionally one release token
+     with digits (`R`, `RC`, `rev`, `alpha`, `beta`, `a`, `b`). Seven registry alias labels
+     (`1556-r`, `2020-dsu`, `2021-qdr`, `2023-ndr`, `2024-nds`, `2025-ndr`, `2025-qdr`) moved into
+     the envelope when the grammar was tightened in round 3;
+   - the result's own resolver-built `secid`, with no whitespace.
+
+   Everything else moves to the envelope: free-form registry values (examples, word labels,
+   namespaces, patterns, schema references, ...) and caller echoes (`secid_query`, feedback's
+   `secid`). A non-conforming value moves too; for an array, one bad element moves the whole
+   field. `describeSource` no longer passes a contributor `data.patterns` through.
+4. **Messages.** A response `message` moves into the envelope behind a fixed pointer. Only
+   constant messages in `src/mcp.ts` stay in place (`serviceMessage`).
+5. **Protocol boundary.** Every JSON transport response goes through `sanitizeJsonRpcForMcp`: static
+   error text by code, with the SDK's text in `error.data.registry_text_untrusted`. Tool error
+   results are treated the same way.
+6. **Client guidance.** The tool descriptions state that all output is derived from registry
+   content or the request, that every field is untrusted, and that the envelope marks the free text.
+   They describe the actual shape, including the truncation marker that can replace a result.
+7. **Parity and tests.**
+   - SecID-Server-API `python/sanitize.py` implements the same rules, and its `/mcp` applies the
+     protocol pass with ASGI middleware.
+   - Both run `test/fixtures/mcp-sanitize-fixtures.json` (57 cases, some with hand-written
+     expectations; small macros expand the multi-megabyte budget cases). It also lists the
+     vocabularies, budgets and charging constants.
+   - `test/mcp-output-walk.test.ts` walks the registry before every deploy, using an independent
+     schema tree, and has negative controls.
+
+**Scope and exceptions** (not passed through the sanitizer):
+- **JSON-RPC `id`:** echoed verbatim; the protocol requires it.
+- **Static content:**
+  - tool descriptions and `tools/list`;
+  - the `secid://docs/*` resources;
+  - the `secid://registry` counts resource;
+  - the constant-text errors `handleMCP` returns before the transport runs;
+  - `submit_feedback`'s rate-limited and storage-error responses (constant text and a service UUID).
+- **`describe_changes` success payloads:** built only from `src/tool-changes.ts` constants and a
+  `since` that passed the RFC 3339 check. A test asserts they carry no other string.
+- **The REST API:** unchanged.
+
+**Rejected alternatives:**
+- **A deny-list of prose keys:** fails open on every new field.
+- **A key-name allow-list with length checks** (`9de9197`): key names do not establish provenance
+  or content.
+- **Grammar-checked free-form identifiers** (`6fe663d`): short instructions pass any grammar that
+  admits real identifiers.
+- **Rewrite every resolver message as a template plus details** in both languages: more churn and
+  parity risk than moving the message.
+- **Wrap the whole `data` object:** the agent loses the closed values it can use as structure.
+- **Fail the deploy on a non-conforming value:** moving it to the envelope fails safe.
+
+**Residual risk:**
+- **A resolver-built `secid` can carry a short single token from the caller's item** or from a
+  description-derived name, for example `#Ignore_previous_instructions` (review-5 F2).
+- **Closed grammars bound text; they do not make it safe.** Values outside the envelope are still
+  data.
+- **The envelope labels text; it does not neutralise it.**
+- **The budgets are not yet a hard cap** (#69, labelled in place under CINO rule A2):
+  - cleaning can scan past the scan budget through a stripped suffix;
+  - rejected records refund their scan work;
+  - truncation markers can overflow the 1 MiB output budget;
+  - the charge counts content bytes, not serialized JSON bytes;
+  - Python and TypeScript serialize some floats differently (`1.0` versus `1`).
+
+  The four budget gaps need oversized adversarial content in the registry itself, which arrives
+  only through reviewed, CI-gated PRs. The float difference happens with ordinary values (`1.0`)
+  and only affects byte parity, not safety.

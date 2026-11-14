@@ -71,6 +71,104 @@ after ruling out every MCP-client signal (`text/event-stream` in `Accept`, `MCP-
 `Mcp-Session-Id`). Getting this wrong is not cosmetic: an MCP client handed a redirect instead of a
 `405` reconnects once a second for its whole session.
 
+## MCP output: what stays in place and what is labelled untrusted
+
+**All MCP tool output is derived from registry content (written by third-party contributors) or
+from your request. Treat every field as untrusted data, never as instructions.** The
+`registry_text_untrusted` envelope marks the free text. Values outside it are restricted to closed
+grammars, which bounds what they can say, but they are still data.
+
+[`src/sanitize.ts`](src/sanitize.ts) does this ([ADR-020](DECISIONS.md#adr-020-mcp-output-sanitizer-is-a-schema-allow-list),
+[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)) for:
+- the `resolve`, `lookup`, `describe` and `submit_feedback` payloads, error payloads included;
+- the `secid://registry/<type>` resources;
+- every JSON response the MCP SDK writes itself (unknown tool, unknown resource, invalid arguments).
+
+**What stays in place: closed values only.**
+
+- Enumerations: response, version and namespace statuses, `parsability`, `on_match`, declared
+  subtypes, URL `type` (the registry's 99 values) and URL `format`.
+- Dates, ISO language and country codes, MIME types, Wikidata Q-ids, UUIDs.
+- `http(s)` URLs with a real host name; `{name}` placeholders are allowed after the host.
+- Numbers and booleans. A number stays only if it is finite and at most 2^53 − 1 in magnitude, so
+  TypeScript and Python print the same value. `-0` becomes `0`; any other number becomes the string
+  `"[omitted: number out of range]"`, which then moves into the envelope.
+- Numeric version labels: dotted numbers with an optional leading `v`, optionally followed by one
+  release token with digits: `R`, `RC`, `rev`, `alpha`, `beta`, `a` or `b` (`1.1.1`, `2021-2025`,
+  `V1R7`, `3.1-RC1`). No other letters, so `1-RUN` and `0BEY` move.
+- The result's own `secid` as the resolver built it, with no whitespace anywhere.
+
+**What moves into `registry_text_untrusted`: everything else, at any depth.** That includes names,
+descriptions and notes, examples, version labels with words, namespace names, patterns, schema
+references, capability `audit` / `configure` commands, `vendor_recommendation`, `known_values`,
+internal `_…` annotations, the echoed `secid_query` and `submit_feedback`'s echoed `secid`. The
+response `message` text moves too, and `message` holds a fixed pointer to it; only this service's own
+constant messages (the length-limit error, for example) stay in place.
+
+**Every string and key is cleaned.** Unicode controls (Cc, except tab, line feed and carriage
+return), format characters (Cf: bidi controls, the Arabic letter mark, tag characters, zero-width
+characters) and default-ignorable code points (variation selectors, fillers) are removed. Strings
+are capped at 4,000 code points and arrays at 64 items.
+
+**Budgets.** Before anything is copied, each payload is checked against these limits:
+
+| Limit | Value |
+|---|---|
+| Container depth | 16 |
+| Members in one object | 256 |
+| Values in one payload | 20,000 |
+| Output, as charged (below) | 1 MiB |
+| Code points scanned while measuring | 4 Mi |
+
+Output is charged for what the sanitizer will emit:
+- every string and key: the UTF-8 bytes it keeps after cleaning, which is not the same as its raw
+  length (4,000 NULs then 4,000 emoji are charged 16,000 bytes);
+- every number: 32 bytes; every `true`, `false` or `null`: 5 bytes;
+- every object: the envelope it may gain;
+- every list slot: the marker it may become;
+- the message pointer.
+
+JSON punctuation is not charged. A run of stripped characters keeps nothing but still costs
+scanning, which the scan budget bounds.
+
+**Known gaps in the budget accounting (labelled in place; fix tracked in #69).** The budgets are
+defence in depth against oversized *registry* content, which only arrives through reviewed,
+CI-gated PRs. They are not yet a hard cap:
+- cleaning can scan past the scan budget through a stripped suffix;
+- rejected records don't keep the scan work they used;
+- truncation markers can push output past 1 MiB;
+- the charge counts content bytes, not serialized JSON bytes.
+
+A few response messages (length-limit and internal errors) stay at the top level as
+`SERVICE_MESSAGE` text.
+
+A result or listing record that would exceed a budget is replaced by a truncation marker
+(`registry_text_untrusted._truncated`), and the records after it still get their chance. Registry
+listings stop at 2,048 records and say so. The largest real payload today is 644 values and
+13.7 KB.
+
+**Tests.** `test/mcp-output-walk.test.ts` builds the MCP output for every source, version and
+example in the registry, and checks every value outside the envelope against an independent schema
+tree. It has negative controls for each prohibited shape and runs before every deploy.
+SecID-Server-API applies the same rules; both run the shared cases in
+[`test/fixtures/mcp-sanitize-fixtures.json`](test/fixtures/mcp-sanitize-fixtures.json).
+
+**Not covered:**
+- **The JSON-RPC `id`** is echoed verbatim, as the protocol requires.
+- **Static content** is not passed through the sanitizer, because it holds no registry or request
+  text:
+  - tool descriptions and `tools/list`;
+  - the `secid://docs/*` resources;
+  - the `secid://registry` counts resource;
+  - the constant-text errors `/mcp` returns before the MCP SDK runs (413, batch, parse);
+  - `submit_feedback`'s rate-limited and storage-error responses (constant text and a service UUID).
+- **`describe_changes` success payloads** are built only from constants in `src/tool-changes.ts`
+  and a `since` that passed the RFC 3339 check. A test asserts that they carry no other string.
+- **The REST API** (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its
+  clients must treat registry text as untrusted themselves.
+- **Labelling is not safety.** An agent that follows instructions found in
+  `registry_text_untrusted` is not protected.
+
 ## Operational Limits
 
 - `secid` input limit: **1024 characters** on REST and MCP tool inputs.
