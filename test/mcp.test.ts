@@ -407,7 +407,10 @@ describe("MCP end-to-end flow", () => {
     const readResp = readBody as { result?: { contents: Array<{ text: string }> } };
     const ttpData = JSON.parse(readResp.result!.contents[0].text);
     expect(ttpData.type).toBe("ttp");
-    expect(ttpData.namespaces.some((n: { namespace: string }) => n.namespace === "mitre.org")).toBe(true);
+    // Namespace names are registry text: they sit in each record's envelope (#67).
+    expect(
+      ttpData.namespaces.some((n: { registry_text_untrusted?: { namespace?: string } }) => n.registry_text_untrusted?.namespace === "mitre.org"),
+    ).toBe(true);
   });
 
   it("doc resources are readable and contain expected content", async () => {
@@ -564,11 +567,12 @@ describe("MCP output boundary (#67)", () => {
     expect(Array.isArray(data.urls)).toBe(true);
   });
 
-  it("strips bidi and zero-width characters from the echoed secid_query (F13)", async () => {
+  it("the echoed secid_query is in the envelope, stripped of bidi and zero-width characters (F13, P1)", async () => {
     const secid = `secid:advisory/mitre.org/cve#CVE-2021-44228${RLO}X${ZWSP}Y`;
     const { body } = await mcpCallTool("resolve", { secid });
     const payload = toolPayload(body);
-    expect(payload.secid_query).toBe("secid:advisory/mitre.org/cve#CVE-2021-44228XY");
+    expect(payload.secid_query).toBeUndefined();
+    expect(payload.registry_text_untrusted.secid_query).toBe("secid:advisory/mitre.org/cve#CVE-2021-44228XY");
     expect(JSON.stringify(payload)).not.toContain(RLO);
     expect(JSON.stringify(payload)).not.toContain(ZWSP);
   });
@@ -655,9 +659,41 @@ describe("MCP output boundary (#67)", () => {
     const { body } = await mcpPost(jsonrpc("resources/read", { uri: "secid://registry/advisory" }));
     const data = JSON.parse((body as { result: { contents: Array<{ text: string }> } }).result.contents[0].text);
     const first = data.namespaces[0];
-    expect(first.namespace).toEqual(expect.any(String));
+    expect(data.type).toBe("advisory");
     expect(first.source_count).toEqual(expect.any(Number));
+    expect(first.namespace).toBeUndefined();
     expect(first.official_name).toBeUndefined();
+    expect(first.registry_text_untrusted.namespace).toEqual(expect.any(String));
     expect(first.registry_text_untrusted.official_name).toEqual(expect.any(String));
+  });
+});
+
+// describe_changes success payloads do not go through the sanitizer: they are
+// built only from constants in src/tool-changes.ts and a `since` that passed
+// the RFC 3339 check (ADR-020, exceptions). This test keeps that true.
+describe("describe_changes carries no request or registry text (#67)", () => {
+  it("every string in its payload is a constant from the change log or manifest, or the validated since", async () => {
+    const { TOOL_CHANGE_LOG } = await import("../src/tool-changes");
+    const { TOOL_CONTRACT_MANIFEST } = await import("../src/mcp");
+    const since = "2026-01-01T00:00:00Z";
+    const { body } = await mcpCallTool("describe_changes", { since });
+    const payload = JSON.parse((body as { result: { content: Array<{ text: string }> } }).result.content[0].text);
+    const allowed = new Set<string>([since, TOOL_CONTRACT_MANIFEST.toolset_hash, TOOL_CONTRACT_MANIFEST.last_changed]);
+    for (const e of TOOL_CHANGE_LOG) for (const v of Object.values(e)) if (typeof v === "string") allowed.add(v);
+    for (const [name, t] of Object.entries(TOOL_CONTRACT_MANIFEST.tools)) {
+      allowed.add(name);
+      allowed.add(t.contract_hash);
+      allowed.add(t.changed);
+    }
+    const strings: string[] = [];
+    const collect = (v: unknown): void => {
+      if (typeof v === "string") strings.push(v);
+      else if (Array.isArray(v)) v.forEach(collect);
+      else if (v && typeof v === "object") for (const [k, x] of Object.entries(v)) { strings.push(k); collect(x); }
+    };
+    collect(payload);
+    const keys = new Set(["toolset_hash", "last_changed", "since", "tools", "changes", "contract_hash", "changed",
+      "timestamp", "tool", "change_type", "summary"]);
+    expect(strings.filter((x) => !allowed.has(x) && !keys.has(x))).toEqual([]);
   });
 });
