@@ -469,6 +469,9 @@ day after Codex's cross-vendor reviews of #68:
 - **Round 2** (`6fe663d`): short instructions still passed as identifiers; traversal was
   unbounded; truncation retained its input; the detector had blind spots; the docs overstated the
   guarantees.
+- **Round 3** (`fc97663`): the byte budget counted raw characters rather than retained ones;
+  Python kept arbitrarily large integers; the version grammar admitted words (`1-RUN`, `0BEY`);
+  the tool descriptions still described the old shape.
 
 The round-2 fix for the first point follows the governing agent's decision: move all free-form
 values into the envelope and keep only closed grammars in place. Review records are on #68.
@@ -485,16 +488,25 @@ closed grammars, and the tool descriptions tell clients that every field is stil
 - **Why grammar is not enough.** Any grammar loose enough for real identifiers ("Annex A",
   "LEGGI ED ALTRI ATTI NORMATIVI: 2 (1)") also admits "Ignore previous instructions".
 - **Measured over the registry walk** (13,061 queries; the walk test's independent detector):
-  - `main`: 35,098 violations;
-  - `6fe663d`: 22,771;
+  - `main`: 35,133 violations;
+  - `6fe663d`: 22,806;
+  - `fc97663`: 35;
   - this version: 0.
 
 **Decision:**
 1. **Budgets first.** Before copying, a measuring pass checks each payload against these limits:
-   container depth 16; 256 members per object; 20,000 values; 1 MiB of string and key content
-   (UTF-8, each string up to 4,000 code points). The verdict does not depend on visit order.
-   Results and listing records are charged in order: one that does not fit is replaced by a
-   truncation marker. Listings stop at 2,048 records and say so.
+   container depth 16; 256 members per object; 20,000 values; 1 MiB of output; 4 Mi code points
+   scanned.
+   - **Output is charged for what will be emitted:** the UTF-8 bytes each string and key keeps after
+     cleaning; 32 bytes per number and 5 per `true`/`false`/`null`; the envelope each object may
+     gain; the marker each list slot may become; the message pointer.
+   - **The scan budget** bounds the work of measuring strings that keep little, such as a long run
+     of stripped characters.
+   - **The verdict does not depend on visit order.** Results and listing records are charged in
+     order, and one that does not fit is replaced by a truncation marker. Listings stop at 2,048
+     records and say so.
+   - **Exact boundary:** a shared fixture checks that a payload charged exactly 1,048,576 bytes
+     fits and one byte more does not.
 2. **Characters.** Strip category Cc (except TAB, LF, CR), category Cf, and
    Default_Ignorable_Code_Point (Unicode 16.0; 29 frozen code-point ranges in both
    implementations). Cap strings at 4,000 code points, built as an independent copy so a large
@@ -504,8 +516,13 @@ closed grammars, and the tool descriptions tell clients that every field is stil
    - enumerations;
    - dates, ISO language and country codes, MIME types, Q-ids, UUIDs;
    - http(s) URLs with an ASCII host;
-   - numbers and booleans;
-   - numeric version labels;
+   - numbers and booleans. A number stays only if finite and at most 2^53 − 1 in magnitude, so
+     both languages print the same value. `-0` becomes `0`; anything else becomes the string
+     `"[omitted: number out of range]"`;
+   - numeric version labels: dotted numbers with an optional `v`, optionally one release token
+     with digits (`R`, `RC`, `rev`, `alpha`, `beta`, `a`, `b`). Seven registry alias labels
+     (`1556-r`, `2020-dsu`, `2021-qdr`, `2023-ndr`, `2024-nds`, `2025-ndr`, `2025-qdr`) moved into
+     the envelope when the grammar was tightened in round 3;
    - the result's own resolver-built `secid`, with no whitespace.
 
    Everything else moves to the envelope: free-form registry values (examples, word labels,
@@ -519,11 +536,13 @@ closed grammars, and the tool descriptions tell clients that every field is stil
    results are treated the same way.
 6. **Client guidance.** The tool descriptions state that all output is derived from registry
    content or the request, that every field is untrusted, and that the envelope marks the free text.
+   They describe the actual shape, including the truncation marker that can replace a result.
 7. **Parity and tests.**
    - SecID-Server-API `python/sanitize.py` implements the same rules, and its `/mcp` applies the
      protocol pass with ASGI middleware.
-   - Both run `test/fixtures/mcp-sanitize-fixtures.json` (50 cases, some with hand-written
-     expectations, plus vocabularies and budgets).
+   - Both run `test/fixtures/mcp-sanitize-fixtures.json` (57 cases, some with hand-written
+     expectations; small macros expand the multi-megabyte budget cases). It also lists the
+     vocabularies, budgets and charging constants.
    - `test/mcp-output-walk.test.ts` walks the registry before every deploy, using an independent
      schema tree, and has negative controls.
 

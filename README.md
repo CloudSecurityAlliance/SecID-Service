@@ -90,9 +90,12 @@ grammars, which bounds what they can say, but they are still data.
   subtypes, URL `type` (the registry's 99 values) and URL `format`.
 - Dates, ISO language and country codes, MIME types, Wikidata Q-ids, UUIDs.
 - `http(s)` URLs with a real host name; `{name}` placeholders are allowed after the host.
-- Numbers and booleans.
-- Numeric version labels: digits and separators, an optional leading `v`, and at most three
-  letters (`1.1.1`, `2021-2025`, `V1R7`, `3.1-RC1`).
+- Numbers and booleans. A number stays only if it is finite and at most 2^53 − 1 in magnitude, so
+  TypeScript and Python print the same value. `-0` becomes `0`; any other number becomes the string
+  `"[omitted: number out of range]"`, which then moves into the envelope.
+- Numeric version labels: dotted numbers with an optional leading `v`, optionally followed by one
+  release token with digits: `R`, `RC`, `rev`, `alpha`, `beta`, `a` or `b` (`1.1.1`, `2021-2025`,
+  `V1R7`, `3.1-RC1`). No other letters, so `1-RUN` and `0BEY` move.
 - The result's own `secid` as the resolver built it, with no whitespace anywhere.
 
 **What moves into `registry_text_untrusted`: everything else, at any depth.** That includes names,
@@ -114,11 +117,24 @@ are capped at 4,000 code points and arrays at 64 items.
 | Container depth | 16 |
 | Members in one object | 256 |
 | Values in one payload | 20,000 |
-| String and key content | 1 MiB |
+| Output, as charged (below) | 1 MiB |
+| Code points scanned while measuring | 4 Mi |
 
-A result or listing record that would exceed a budget is replaced by a truncation marker, and the
-records after it still get their chance. Registry listings stop at 2,048 records and say so. The
-largest real payload today is 644 values and 13.7 KB.
+Output is charged for what the sanitizer will emit:
+- every string and key: the UTF-8 bytes it keeps after cleaning, which is not the same as its raw
+  length (4,000 NULs then 4,000 emoji are charged 16,000 bytes);
+- every number: 32 bytes; every `true`, `false` or `null`: 5 bytes;
+- every object: the envelope it may gain;
+- every list slot: the marker it may become;
+- the message pointer.
+
+JSON punctuation is not charged. A run of stripped characters keeps nothing but still costs
+scanning, which the scan budget bounds.
+
+A result or listing record that would exceed a budget is replaced by a truncation marker
+(`registry_text_untrusted._truncated`), and the records after it still get their chance. Registry
+listings stop at 2,048 records and say so. The largest real payload today is 644 values and
+13.7 KB.
 
 **Tests.** `test/mcp-output-walk.test.ts` builds the MCP output for every source, version and
 example in the registry, and checks every value outside the envelope against an independent schema
