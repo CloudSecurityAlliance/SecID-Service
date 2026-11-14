@@ -42,7 +42,9 @@ concurrency:
 
 jobs:
   upload:
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest became Ubuntu 26.04, where Playwright 1.58.2 cannot install Chromium,
+    # so the post-deploy site check could not run (#70). Unpin once Playwright supports 26.04.
+    runs-on: ubuntu-24.04
     timeout-minutes: 20
     permissions:
       contents: read
