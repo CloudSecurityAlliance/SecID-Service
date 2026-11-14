@@ -575,3 +575,12 @@ closed grammars, and the tool descriptions tell clients that every field is stil
 - **Closed grammars bound text; they do not make it safe.** Values outside the envelope are still
   data.
 - **The envelope labels text; it does not neutralise it.**
+- **The budgets are not yet a hard cap** (#69, labelled in place under CINO rule A2):
+  - cleaning can scan past the scan budget through a stripped suffix;
+  - rejected records refund their scan work;
+  - truncation markers can overflow the 1 MiB output budget;
+  - the charge counts content bytes, not serialized JSON bytes;
+  - Python and TypeScript serialize some floats differently (`1.0` versus `1`).
+
+  Exploiting any of these needs oversized adversarial content in the registry itself, which arrives
+  only through reviewed, CI-gated PRs.

@@ -131,6 +131,17 @@ Output is charged for what the sanitizer will emit:
 JSON punctuation is not charged. A run of stripped characters keeps nothing but still costs
 scanning, which the scan budget bounds.
 
+**Known gaps in the budget accounting (labelled in place; fix tracked in #69).** The budgets are
+defence in depth against oversized *registry* content, which only arrives through reviewed,
+CI-gated PRs. They are not yet a hard cap:
+- cleaning can scan past the scan budget through a stripped suffix;
+- rejected records don't keep the scan work they used;
+- truncation markers can push output past 1 MiB;
+- the charge counts content bytes, not serialized JSON bytes.
+
+A few response messages (length-limit and internal errors) stay at the top level as
+`SERVICE_MESSAGE` text.
+
 A result or listing record that would exceed a budget is replaced by a truncation marker
 (`registry_text_untrusted._truncated`), and the records after it still get their chance. Registry
 listings stop at 2,048 records and say so. The largest real payload today is 644 values and
