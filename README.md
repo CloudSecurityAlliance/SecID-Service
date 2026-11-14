@@ -71,6 +71,40 @@ after ruling out every MCP-client signal (`text/event-stream` in `Accept`, `MCP-
 `Mcp-Session-Id`). Getting this wrong is not cosmetic: an MCP client handed a redirect instead of a
 `405` reconnects once a second for its whole session.
 
+## MCP output: what stays in place and what is labelled untrusted
+
+Registry data is written by third-party contributors, and MCP output goes straight into an AI
+agent's context. So the MCP tools (`resolve`, `lookup`, `describe`) and the `secid://registry/<type>`
+resources pass every payload through [`src/sanitize.ts`](src/sanitize.ts) (since 2026-11-14,
+[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)):
+
+- **An allow-list of structural keys stays in place**: identifiers (`secid`, `namespace`, `schema`,
+  `wikidata`, `version`, `label`, `input`, `examples`, `available_items`), URLs (`url`, `wikipedia`),
+  enums and codes (`type`, `status`, `format`, `on_match`, `lang`, `content_type`, `parsability`,
+  `subtype`, `subtypes`, `country`), dates (`release_date`, `checked`), regex `pattern`s, counts and
+  flags (`weight`, `source_count`, `child_count`, `namespace_count`, `version_required`), and the
+  containers that hold them (`data`, `urls`, `patterns`, `versions_available`, `aliases`, `namespaces`).
+- **Every other key, at any depth, moves under `registry_text_untrusted`**, next to a `_warning` that
+  it is data, not instructions. That covers descriptions, names and notes, and every type-specific
+  block: capability `audit` / `configure` commands, `vendor_recommendation`, `options`, `default`,
+  `cross_references`, `known_values`, `cve`, `security_txt`, internal `_…` annotations, and any field
+  added to the registry later.
+- **A structural key whose value does not look structural moves too**: a `url` that is not an
+  `http(s)` URL without whitespace, or an identifier longer than 128 characters (48 if it contains
+  whitespace).
+- **Every string is cleaned**: C0/C1 control, zero-width and bidi-override characters are removed
+  (keys too, and the echoed `secid_query` and error messages), strings are capped at 4,000 code
+  points and arrays at 64 items.
+
+`test/mcp-output-walk.test.ts` builds the MCP output for every source in the registry and fails if a
+key outside the allow-list, or a whitespace-containing string over 48 characters, appears outside the
+envelope. It runs before every deploy, against the SecID commit being deployed. SecID-Server-API
+applies the same rules; both run the shared cases in
+[`test/fixtures/mcp-sanitize-fixtures.json`](test/fixtures/mcp-sanitize-fixtures.json).
+
+The REST API (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its clients must
+treat registry text as untrusted themselves.
+
 ## Operational Limits
 
 - `secid` input limit: **1024 characters** on REST and MCP tool inputs.

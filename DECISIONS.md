@@ -454,3 +454,30 @@ post-deploy gate (#41) re-verifies it on every deploy.
 - **Hand-maintained static contract hashes** — Guaranteed to drift whenever a tool description or Zod schema is edited; computing hashes at startup from the actual registered definitions eliminates drift.
 - **Only `_meta` hashes without `describe_changes`** — Tells a client *that* a hash changed, but not *what* changed or why.
 - **Only `describe_changes` without `_meta` hashes** — Requires an extra `tools/call` round-trip even when the client already calls `tools/list`.
+
+---
+
+## ADR-020: MCP output sanitizer is an allow-list of structural keys
+
+**Date:** 2026-11-14
+**Status:** Accepted
+**Decision method:** AI decision (Claude, implementer for the SecID governing agent), following the fix proposed by the 2026-11-13 independent code-security review (CSA-Internal-Governance/SecID `reviews/2026-11-13/review-5-code-security.md`, F1 and F13; plan item 0.5). Independent cross-vendor review: recorded on the PR (#67). Supersedes the `UNTRUSTED_TEXT_KEYS` deny-list, including the `alternate_names` addition in ADR-018.
+
+**Goal:** Registry text written by third-party contributors must not reach an MCP client outside the `registry_text_untrusted` envelope.
+
+**Context:** `src/sanitize.ts` moved only 15 named prose keys into the envelope, and `describeSource` passes every registry field through. Everything else went out as if trusted: on 2026-11-14 a production `describe` of `secid:capability/amazon.com/aws/lambda/execution-role` returned `audit.cli` / `configure.cli` shell commands and `vendor_recommendation` outside the envelope. A walk of every source in the registry found 24,288 violations in 10,460 MCP outputs: 20,706 occurrences of 336 distinct non-structural keys, 2,676 whitespace-containing strings over 48 characters and 906 strings over 128 characters. The echoed `secid_query`, the MCP error envelopes and the `secid://registry/<type>` resources bypassed the sanitizer (F13).
+
+**Decision:**
+1. `STRUCTURAL_KEYS` in `src/sanitize.ts` is an allow-list of 35 keys (identifiers, URLs, enums, dates, numbers, booleans, regex patterns and the containers that hold them); each key's rationale is in the source. Every other key, at any depth, moves under `registry_text_untrusted` with its `_warning`.
+2. Allow-listed string values must also look structural or they move: `url` / `wikipedia` must be an `http(s)` URL with no whitespace; identifier-class keys are at most 128 code points, and at most 48 if they contain whitespace (the longest real spaced identifier is 36). `secid` (resolver-composed) and `pattern` (executable regex syntax) are exempt; `weight`, counts and containers never hold a string.
+3. Every string is control-stripped (keys and the echoed query included) and capped at 4,000 code points (not UTF-16 units, so no split surrogate pairs and the same result as Python). Keys that collide after stripping resolve deterministically (an unchanged key wins, otherwise the first), so TypeScript and Python agree regardless of key order. Registry keys such as `__proto__` are stored as own properties.
+4. Every MCP tool payload, error envelopes included, and the `secid://registry/<type>` resources go through the sanitizer (`mcpText`, `sanitizeRecordForMcp`).
+5. SecID-Server-API `python/sanitize.py` implements the same rules. Both run `test/fixtures/mcp-sanitize-fixtures.json` (Server-API keeps a byte-identical copy and checks it against a sibling checkout). `test/mcp-output-walk.test.ts` walks the whole registry before every deploy and fails on any key outside the allow-list or any spaced string over 48 characters outside the envelope.
+
+**Rejected alternatives:**
+- **Extend the deny-list with the newly found keys** (`cli`, `vendor_recommendation`, ...) — fails open again for the next field nobody lists; the registry has 336 distinct non-structural keys in MCP output today.
+- **Wrap the whole `data` object** — simplest, but drops the structure agents need (`urls`, versions, patterns) into untrusted text and changes the shape of every result.
+- **Key allow-list without value checks** — leaves allow-listed keys (`type`, `url`, `version`) as a channel for prose; the value checks close it at little cost.
+- **Fail the deploy instead of moving non-conforming values** — a benign registry change (a long label) would block deploys; moving it into the envelope fails safe, and the walk test still catches allow-list regressions.
+
+**Residual risk:** `message` strings interpolate registry identifiers (version labels, status, release dates, lang codes); they are control-stripped and capped but not enveloped. `pattern` values may contain spaces (288 do, as enumerations) and are not length-limited below 4,000. A description-derived source slug can appear in a `secid` (review-5 F2).

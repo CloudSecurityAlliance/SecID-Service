@@ -25,7 +25,7 @@ Provide a fast, reliable, abuse-resistant, zero-setup public resolution service 
     - Core resolution parity between `SecID-Service` (TypeScript/Cloudflare Worker) and [`SecID-Server-API`](https://github.com/CloudSecurityAlliance/SecID-Server-API) (self-hosted Python resolver) across all five `ResponseStatus` values (`found`, `corrected`, `related`, `not_found`, `error`) and `lang` filtering, aside from documented self-hosted API differences.
 - **Objective:** Provide a hardened, standards-compliant remote MCP server (`/mcp`) that AI agents can connect to safely.
   - **Success metrics:**
-    - 100% of registry-derived prose fields returned by `/mcp` tools (`resolve`, `lookup`, `describe`) recursively sanitized and isolated in `registry_text_untrusted` (`src/sanitize.ts`, verified by `test/sanitize.test.ts`).
+    - 100% of registry-derived fields returned by `/mcp` tools (`resolve`, `lookup`, `describe`) and `secid://registry/<type>` resources are either on the structural allow-list or isolated in `registry_text_untrusted` (`src/sanitize.ts`, ADR-020; verified by `test/sanitize.test.ts` and the registry walk in `test/mcp-output-walk.test.ts`).
     - 100% compliance with the CSA fleet `/mcp` HTTP method gate contract (`src/method-gate.ts`, `test/method-gate.test.ts`, `e2e/mcp.spec.ts`): `405` for non-POST MCP requests, `302` to `/#mcp-setup` only for positively identified browser navigations, `204` for CORS `OPTIONS`, and `501` for unknown methods.
 
 ## Shared Goals

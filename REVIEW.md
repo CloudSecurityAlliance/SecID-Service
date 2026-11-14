@@ -14,9 +14,10 @@ Because **every merge to `main` runs `registry-kv-upload.yml`, syncs Cloudflare 
 
 ## 2. MCP Output Sanitization and Untrusted Input Handling
 
-- **Recursive MCP output sanitization (`src/sanitize.ts`):** Every MCP tool (`resolve`, `lookup`, `describe` in `src/mcp.ts`) returning registry-derived data must pass its output through `sanitizeResponseForMcp()`. Verify that changes to response shapes or `src/sanitize.ts`:
-  - Recursively traverse nested objects and arrays (`sanitizeDict()` / `sanitizeValue()`) so `UNTRUSTED_TEXT_KEYS` (`description`, `notes`, `note`, `official_name`, `common_name`, `alternate_names`, `auth`, `contacts`, `contact`, `scope`, `policy`, `disclosure_policy`, `version_disambiguation`, `unversioned_behavior`, `parsing_instructions`) at any depth are relocated into `registry_text_untrusted` with `registry_text_untrusted._warning`.
-  - Strip C0/C1 control, zero-width, and bidi-override characters (`CONTROL_RE`) and recursively cap strings, arrays, and nested dicts via `capString()` / `capValue()` (`MAX_FIELD_CHARS = 4000`, `MAX_ARRAY_ITEMS = 64`).
+- **Allow-list MCP output sanitization (`src/sanitize.ts`, ADR-020):** Every MCP tool payload (`resolve`, `lookup`, `describe`, error envelopes included) must go through `mcpText()` / `sanitizeResponseForMcp()`, and the `secid://registry/<type>` resources through `sanitizeRecordForMcp()`. Verify that changes to response shapes or `src/sanitize.ts`:
+  - Keep the sanitizer an **allow-list**: only `STRUCTURAL_KEYS` stay in place, and only when their string values pass the key's class check (`url`: http(s) without whitespace; `ident`: ≤ 128 code points, ≤ 48 if spaced; `nostring`: never a string). Every other key, at any depth, moves into `registry_text_untrusted` with `registry_text_untrusted._warning`. A key added to `STRUCTURAL_KEYS`, or a widened class check, must come with a reason it cannot carry prose.
+  - Strip C0/C1 control, zero-width, and bidi-override characters (`CONTROL_RE`) from every string and key, the echoed `secid_query` included, and cap strings (code points) and arrays (`MAX_FIELD_CHARS = 4000`, `MAX_ARRAY_ITEMS = 64`).
+  - Keep `test/fixtures/mcp-sanitize-fixtures.json` byte-identical to SecID-Server-API's `python/fixtures/` copy, and `test/mcp-output-walk.test.ts` (the registry walk) green.
 - **`submit_feedback` isolation (`src/feedback.ts`):** Caller-supplied text (`secid`, `message`, `suggested_urls`) must remain inside the `untrusted` envelope (`schema_version: 2`) with the `handling` warning intact.
 
 ## 3. `/mcp` HTTP Method Gate Parity (ADR-015)
