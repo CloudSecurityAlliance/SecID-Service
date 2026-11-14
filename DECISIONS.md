@@ -457,27 +457,96 @@ post-deploy gate (#41) re-verifies it on every deploy.
 
 ---
 
-## ADR-020: MCP output sanitizer is an allow-list of structural keys
+## ADR-020: MCP output sanitizer is a schema allow-list
 
 **Date:** 2026-11-14
-**Status:** Accepted
-**Decision method:** AI decision (Claude, implementer for the SecID governing agent), following the fix proposed by the 2026-11-13 independent code-security review (CSA-Internal-Governance/SecID `reviews/2026-11-13/review-5-code-security.md`, F1 and F13; plan item 0.5). Independent cross-vendor review: recorded on the PR (#67). Supersedes the `UNTRUSTED_TEXT_KEYS` deny-list, including the `alternate_names` addition in ADR-018.
+**Status:** Accepted (pending merge of #68)
+**Decision method:** AI decision (Claude, implementer for the SecID governing agent), following the
+fix proposed by the 2026-11-13 independent code-security review (CSA-Internal-Governance/SecID
+`reviews/2026-11-13/review-5-code-security.md`, F1 and F13; plan item 0.5). Revised the same day
+after Codex's cross-vendor review of #68 at `9de9197` found that a key-name allow-list still let
+prose through (P1-a: prose in allow-listed fields, P1-b: messages), along with five more findings
+(P2-c to P3-g). Records of both reviews are on #68. Supersedes the `UNTRUSTED_TEXT_KEYS` deny-list,
+including the `alternate_names` addition in ADR-018.
 
-**Goal:** Registry text written by third-party contributors must not reach an MCP client outside the `registry_text_untrusted` envelope.
+**Goal:** Registry text written by third-party contributors, and caller text echoed back, must not
+reach an MCP client outside the `registry_text_untrusted` envelope, unless it has been checked to be
+structure (an identifier, a URL, an enumeration value, a number, ...).
 
-**Context:** `src/sanitize.ts` moved only 15 named prose keys into the envelope, and `describeSource` passes every registry field through. Everything else went out as if trusted: on 2026-11-14 a production `describe` of `secid:capability/amazon.com/aws/lambda/execution-role` returned `audit.cli` / `configure.cli` shell commands and `vendor_recommendation` outside the envelope. A walk of every source in the registry found 24,288 violations in 10,460 MCP outputs: 20,706 occurrences of 336 distinct non-structural keys, 2,676 whitespace-containing strings over 48 characters and 906 strings over 128 characters. The echoed `secid_query`, the MCP error envelopes and the `secid://registry/<type>` resources bypassed the sanitizer (F13).
+**Context:**
+- **Production (re-checked read-only on 2026-11-14).** `describe` of
+  `secid:capability/amazon.com/aws/lambda/execution-role` returned `audit.cli` / `configure.cli`
+  shell commands and `vendor_recommendation` outside the envelope. The echoed `secid_query`
+  kept U+202E and U+200B.
+- **The first fix was not enough.** It was a key allow-list with length checks, and Codex's
+  review showed that an allow-listed key still carried prose (`status: "Ignore previous
+  instructions"`). `secid` and `pattern` were trusted at any depth. `message` interpolated
+  registry version labels and aliases. Errors written by the MCP SDK echoed tool names.
+  Truncation allocated about 128 MiB for a 16 MiB string. The character policy missed bidi
+  isolates and the Arabic letter mark, and `https://?x` passed the URL check.
+- **Measured over the registry walk** (13,061 queries; the walk test's independent detector):
+  - `main`: 12,363 violations;
+  - `9de9197`: 1,761 violations (1,717 of them dynamic messages);
+  - this version: 0.
 
 **Decision:**
-1. `STRUCTURAL_KEYS` in `src/sanitize.ts` is an allow-list of 35 keys (identifiers, URLs, enums, dates, numbers, booleans, regex patterns and the containers that hold them); each key's rationale is in the source. Every other key, at any depth, moves under `registry_text_untrusted` with its `_warning`.
-2. Allow-listed string values must also look structural or they move: `url` / `wikipedia` must be an `http(s)` URL with no whitespace; identifier-class keys are at most 128 code points, and at most 48 if they contain whitespace (the longest real spaced identifier is 36). `secid` (resolver-composed) and `pattern` (executable regex syntax) are exempt; `weight`, counts and containers never hold a string.
-3. Every string is control-stripped (keys and the echoed query included) and capped at 4,000 code points (not UTF-16 units, so no split surrogate pairs and the same result as Python). Keys that collide after stripping resolve deterministically (an unchanged key wins, otherwise the first), so TypeScript and Python agree regardless of key order. Registry keys such as `__proto__` are stored as own properties.
-4. Every MCP tool payload, error envelopes included, and the `secid://registry/<type>` resources go through the sanitizer (`mcpText`, `sanitizeRecordForMcp`).
-5. SecID-Server-API `python/sanitize.py` implements the same rules. Both run `test/fixtures/mcp-sanitize-fixtures.json` (Server-API keeps a byte-identical copy and checks it against a sibling checkout). `test/mcp-output-walk.test.ts` walks the whole registry before every deploy and fails on any key outside the allow-list or any spaced string over 48 characters outside the envelope.
+1. **Characters.** Strip general category Cc (except TAB, LF, CR), category Cf, and
+   Default_Ignorable_Code_Point (Unicode 16.0; frozen as 29 code-point ranges in both
+   implementations). Do it in one bounded pass per string: memory grows with the output (4,000
+   code points), not the input.
+2. **Schema.** `RESPONSE_SCHEMA` in `src/sanitize.ts` declares, per location (top level, result,
+   `data`, URL entry, version, alias, example, pattern entry, namespace entry), which fields may
+   stay and with what JSON type and grammar.
+   - **Grammars:** enumerations (statuses, parsability, `on_match`, declared subtypes, feedback
+     categories); dates; MIME types; language and country codes; Wikidata Q-ids; UUIDs; namespace
+     names.
+   - **URLs:** http(s), an ASCII host name, an optional port, RFC 3986 characters, and `{name}`
+     placeholders only after the host.
+   - **Identifiers:** at most 128 code points, at most 48 and 6 spaces when spaced, and no shell or
+     markup characters.
+   - **SecIDs:** a known type, a path without spaces, and an identifier version and item.
+   - **Patterns:** anchored regexes.
+   - **Locations:** `secid` is declared only as a result's own field, and `pattern` only under
+     `data.patterns[]`. `describeSource` no longer passes a contributor `data.patterns` through, so
+     that key only ever holds the child regexes the resolver runs.
+   - **Everything else moves:** any undeclared field, and any declared field whose value does not
+     match, goes to the envelope (whole arrays if one element fails).
+3. **Messages.** A response's `message` moves into the envelope and is replaced by a fixed
+   pointer. `src/mcp.ts` keeps its own constant messages in place with `{ serviceMessage: true }`.
+   The invalid-`since` error no longer echoes the input.
+4. **Protocol boundary.** Every JSON response from the MCP transport goes through
+   `sanitizeJsonRpcForMcp`. Error messages become static text by code, with the SDK's text in
+   `error.data.registry_text_untrusted`. A tool result marked `isError` that is not one of our
+   JSON payloads is replaced the same way.
+5. **Parity.** SecID-Server-API `python/sanitize.py` implements the same rules, and its `/mcp`
+   applies the same protocol pass with ASGI middleware. Both run
+   `test/fixtures/mcp-sanitize-fixtures.json` (37 cases, some with hand-written expectations; it
+   also lists the vocabularies and the character policy). Server-API keeps a byte-identical copy.
+6. **Registry walk.** `test/mcp-output-walk.test.ts` walks the whole registry before every
+   deploy. It uses a location table and validators written independently of the sanitizer, and
+   negative controls prove each prohibited shape is caught.
 
 **Rejected alternatives:**
-- **Extend the deny-list with the newly found keys** (`cli`, `vendor_recommendation`, ...) — fails open again for the next field nobody lists; the registry has 336 distinct non-structural keys in MCP output today.
-- **Wrap the whole `data` object** — simplest, but drops the structure agents need (`urls`, versions, patterns) into untrusted text and changes the shape of every result.
-- **Key allow-list without value checks** — leaves allow-listed keys (`type`, `url`, `version`) as a channel for prose; the value checks close it at little cost.
-- **Fail the deploy instead of moving non-conforming values** — a benign registry change (a long label) would block deploys; moving it into the envelope fails safe, and the walk test still catches allow-list regressions.
+- **A deny-list of prose keys:** fails open on every new field (336 distinct non-structural keys
+  reached MCP output on `main`).
+- **A key-name allow-list with length checks** (this ADR's first version, `9de9197`): key names do
+  not establish provenance or content.
+- **Rewrite every resolver message as a static template plus details** (in both languages): more
+  churn and parity risk than moving the message, which carries the same information inside the
+  envelope.
+- **Wrap the whole `data` object:** the agent loses the structure it needs (`urls`, versions,
+  patterns).
+- **Fail the deploy on a non-conforming value:** moving it to the envelope fails safe without
+  blocking registry updates.
 
-**Residual risk:** `message` strings interpolate registry identifiers (version labels, status, release dates, lang codes); they are control-stripped and capped but not enveloped. `pattern` values may contain spaces (288 do, as enumerations) and are not length-limited below 4,000. A description-derived source slug can appear in a `secid` (review-5 F2).
+**Residual risk:**
+- **Grammars bound text; they cannot rule it out.** An identifier can still be a short phrase
+  (≤ 48 characters with spaces, ≤ 128 without). A registry pattern, a regex the resolver runs, can
+  contain literal words.
+- **A description-derived source name can appear in a `secid` path** (review-5 F2, plan 2.12).
+- **The JSON-RPC `id` is echoed verbatim**, as the protocol requires.
+- **Two `submit_feedback` responses skip the sanitizer.** The rate-limited and storage-error
+  responses are built only from constant text and a service-generated UUID, so they go out
+  without passing through it.
+- **The REST API is unchanged.**
+- **The envelope labels text; it does not neutralise it.**

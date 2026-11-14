@@ -73,37 +73,63 @@ after ruling out every MCP-client signal (`text/event-stream` in `Accept`, `MCP-
 
 ## MCP output: what stays in place and what is labelled untrusted
 
-Registry data is written by third-party contributors, and MCP output goes straight into an AI
-agent's context. So the MCP tools (`resolve`, `lookup`, `describe`) and the `secid://registry/<type>`
-resources pass every payload through [`src/sanitize.ts`](src/sanitize.ts) (since 2026-11-14,
-[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)):
+Registry data is written by third-party contributors, queries by callers, and MCP output goes
+straight into an AI agent's context. Every MCP tool payload, the `secid://registry/<type>`
+resources and the error responses the MCP SDK writes itself go through
+[`src/sanitize.ts`](src/sanitize.ts) ([ADR-020](DECISIONS.md#adr-020-mcp-output-sanitizer-is-a-schema-allow-list),
+[#67](https://github.com/CloudSecurityAlliance/SecID-Service/issues/67)).
 
-- **An allow-list of structural keys stays in place**: identifiers (`secid`, `namespace`, `schema`,
-  `wikidata`, `version`, `label`, `input`, `examples`, `available_items`), URLs (`url`, `wikipedia`),
-  enums and codes (`type`, `status`, `format`, `on_match`, `lang`, `content_type`, `parsability`,
-  `subtype`, `subtypes`, `country`), dates (`release_date`, `checked`), regex `pattern`s, counts and
-  flags (`weight`, `source_count`, `child_count`, `namespace_count`, `version_required`), and the
-  containers that hold them (`data`, `urls`, `patterns`, `versions_available`, `aliases`, `namespaces`).
-- **Every other key, at any depth, moves under `registry_text_untrusted`**, next to a `_warning` that
-  it is data, not instructions. That covers descriptions, names and notes, and every type-specific
-  block: capability `audit` / `configure` commands, `vendor_recommendation`, `options`, `default`,
-  `cross_references`, `known_values`, `cve`, `security_txt`, internal `_…` annotations, and any field
-  added to the registry later.
-- **A structural key whose value does not look structural moves too**: a `url` that is not an
-  `http(s)` URL without whitespace, or an identifier longer than 128 characters (48 if it contains
-  whitespace).
-- **Every string is cleaned**: C0/C1 control, zero-width and bidi-override characters are removed
-  (keys too, and the echoed `secid_query` and error messages), strings are capped at 4,000 code
+**What the sanitizer does:**
+
+- **Strips hidden characters.** Every string and key loses Unicode controls (category Cc, except
+  tab, line feed and carriage return), format characters (Cf: bidi embeddings, overrides and
+  isolates, the Arabic letter mark, zero-width characters, tag characters) and default-ignorable
+  code points (variation selectors, Hangul fillers and similar). Strings are capped at 4,000 code
   points and arrays at 64 items.
+- **Keeps only declared fields in place.** A field stays where it is only if it is declared for
+  that location in the response schema, and its value has the declared type and matches the
+  field's grammar:
+  - SecIDs;
+  - `http(s)` URLs with a real host name (`{name}` placeholders are allowed after the host);
+  - enumerations (`status`, `parsability`, subtypes, `on_match`, ...);
+  - dates, MIME types, and language and country codes;
+  - counts and flags;
+  - identifiers such as version labels and item IDs: at most 128 characters, at most 48 and 6
+    spaces when they contain spaces, and no quotes, `;`, `|`, `$`, `<`, `>`, backticks or braces.
+- **Trusts `secid` and `pattern` only where the resolver puts them.** `secid` stays in place only
+  as a result's own `secid`. `pattern` stays only in `data.patterns[]`, where the resolver puts the
+  anchored regexes it runs.
+- **Moves everything else into `registry_text_untrusted`**, at any depth, next to a `_warning`
+  that it is data and not instructions. That includes descriptions, names and notes, capability
+  `audit` / `configure` commands, `vendor_recommendation`, `options`, `known_values`, internal
+  `_…` annotations, and any field the registry adds later.
+- **Moves the response `message` too.** It quotes the query and registry values. `message` itself
+  holds a fixed pointer to `registry_text_untrusted.message`. The exception is this service's own
+  constant messages, such as the length-limit error.
+- **Checks the echoed `secid_query`.** It stays in place only if it is a SecID or a plain
+  identifier.
+- **Rewrites errors the MCP SDK writes.** For an unknown tool, an unknown resource or invalid
+  arguments, the response carries static text, with the SDK's text (which echoes the request)
+  inside the envelope.
 
-`test/mcp-output-walk.test.ts` builds the MCP output for every source in the registry and fails if a
-key outside the allow-list, or a whitespace-containing string over 48 characters, appears outside the
-envelope. It runs before every deploy, against the SecID commit being deployed. SecID-Server-API
+`test/mcp-output-walk.test.ts` builds the MCP output for every source, version and example in the
+registry. It checks every value outside the envelope against a location table and validators
+written independently of the sanitizer, and it includes negative controls for each prohibited
+shape. It runs before every deploy, against the SecID commit being deployed. SecID-Server-API
 applies the same rules; both run the shared cases in
 [`test/fixtures/mcp-sanitize-fixtures.json`](test/fixtures/mcp-sanitize-fixtures.json).
 
-The REST API (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its clients must
-treat registry text as untrusted themselves.
+**What it does not guarantee:**
+
+- **Grammars bound text; they cannot rule it out.** An identifier can still be a short phrase
+  (`Ignore previous instructions` passes the identifier grammar).
+- **A registry regex can contain literal words.** Patterns up to 4,000 characters stay in place.
+- **The JSON-RPC `id` is echoed verbatim**, as the protocol requires.
+- **Labelling is not safety.** An agent that follows instructions found in
+  `registry_text_untrusted` is not protected.
+
+The REST API (`/api/v1/resolve`) is not reshaped: it is a programmatic contract, and its clients
+must treat registry text as untrusted themselves.
 
 ## Operational Limits
 
