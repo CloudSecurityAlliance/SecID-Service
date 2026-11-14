@@ -67,11 +67,12 @@ export interface DescribeChangesResponse {
 }
 
 export class InvalidSinceTimestampError extends Error {
+  /** The rejected input. Not in the message: MCP output never echoes caller text outside the envelope (#67). */
+  readonly since: string;
   constructor(since: string) {
-    super(
-      `Invalid 'since' timestamp '${since}': must be an RFC 3339 / ISO 8601 timestamp (e.g. '2026-04-01T00:00:00Z').`
-    );
+    super("Invalid 'since' timestamp: must be an RFC 3339 / ISO 8601 timestamp (e.g. '2026-04-01T00:00:00Z').");
     this.name = "InvalidSinceTimestampError";
+    this.since = since;
   }
 }
 
@@ -96,36 +97,37 @@ export const TOOL_CHANGE_LOG: readonly ToolChangeEntry[] = [
     tool: "resolve",
     change_type: "updated",
     summary:
-      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67).",
+      "MCP output now follows a declared response schema (#67): a field stays in place only at its declared location and only if its value has the declared type and grammar (SecIDs, http(s) URLs with a host, enumerations, dates, MIME types, language and country codes, identifiers of at most 128 characters - 48 with spaces, no shell or markup characters - and, only under data.patterns[], the anchored regexes the resolver runs). Everything else, at any depth, moves under registry_text_untrusted, including capability audit/configure commands, vendor_recommendation, options, known_values and internal _ notes. The message field is replaced by a pointer and its text (which quotes the query and registry values) is in registry_text_untrusted.message; an echoed secid_query that is not a SecID or identifier moves there too. Every string and key loses control, format and default-ignorable characters (bidi isolates, the Arabic letter mark, tag characters, variation selectors included) and is capped at 4000 code points. Errors the MCP SDK writes (unknown tool, unknown resource, invalid arguments) carry static text with the original inside the envelope.",
   },
   {
     timestamp: "2026-11-14T00:00:00Z",
     tool: "lookup",
     change_type: "updated",
     summary:
-      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67).",
+      "MCP output now follows a declared response schema (#67): a field stays in place only at its declared location and only if its value has the declared type and grammar (SecIDs, http(s) URLs with a host, enumerations, dates, MIME types, language and country codes, identifiers of at most 128 characters - 48 with spaces, no shell or markup characters - and, only under data.patterns[], the anchored regexes the resolver runs). Everything else, at any depth, moves under registry_text_untrusted, including capability audit/configure commands, vendor_recommendation, options, known_values and internal _ notes. The message field is replaced by a pointer and its text (which quotes the query and registry values) is in registry_text_untrusted.message; an echoed secid_query that is not a SecID or identifier moves there too. Every string and key loses control, format and default-ignorable characters (bidi isolates, the Arabic letter mark, tag characters, variation selectors included) and is capped at 4000 code points. Errors the MCP SDK writes (unknown tool, unknown resource, invalid arguments) carry static text with the original inside the envelope.",
   },
   {
     timestamp: "2026-11-14T00:00:00Z",
     tool: "describe",
     change_type: "updated",
     summary:
-      "MCP output sanitizer switched from a deny-list of prose keys to an allow-list of structural keys. Every other registry field, at any depth, now moves under registry_text_untrusted: only structural keys stay in place (secid, url, weight, pattern, type, status, format, lang, content_type, parsability, schema, version, label, input, examples, available_items, versions_available, aliases, namespace(s), subtype(s), country, release_date, checked, wikidata, wikipedia, version_required, the counts, and the data/urls/patterns containers). Fields that moved include capability audit/configure commands, vendor_recommendation, options, default, cross_references, known_values, variables, lookup_table, cve, security_txt and internal _-prefixed notes. A structural key whose value does not look structural also moves (a url that is not http(s), an identifier over 128 characters, or over 48 if it contains whitespace). Every string, the echoed secid_query and error envelopes included, is control-stripped; keys inside the envelope too; strings are capped at 4000 code points (#67). "
-      + "The secid://registry/<type> resources now carry official_name and common_name under registry_text_untrusted as well.",
+      "MCP output now follows a declared response schema (#67): a field stays in place only at its declared location and only if its value has the declared type and grammar (SecIDs, http(s) URLs with a host, enumerations, dates, MIME types, language and country codes, identifiers of at most 128 characters - 48 with spaces, no shell or markup characters - and, only under data.patterns[], the anchored regexes the resolver runs). Everything else, at any depth, moves under registry_text_untrusted, including capability audit/configure commands, vendor_recommendation, options, known_values and internal _ notes. The message field is replaced by a pointer and its text (which quotes the query and registry values) is in registry_text_untrusted.message; an echoed secid_query that is not a SecID or identifier moves there too. Every string and key loses control, format and default-ignorable characters (bidi isolates, the Arabic letter mark, tag characters, variation selectors included) and is capped at 4000 code points. Errors the MCP SDK writes (unknown tool, unknown resource, invalid arguments) carry static text with the original inside the envelope. The subtypes list keeps value in place and moves description into the envelope; the "
+      + "secid://registry/<type> resources carry official_name and common_name under registry_text_untrusted.",
   },
   {
     timestamp: "2026-11-14T00:00:00Z",
     tool: "submit_feedback",
     change_type: "updated",
     summary:
-      "The secid echoed in the response is now control-stripped like every other MCP output string (#67).",
+      "The response's echoed secid, feedback_id and category stay in place only if they are a SecID, a UUID and a "
+      + "known category; otherwise they move under registry_text_untrusted (#67).",
   },
   {
     timestamp: "2026-11-14T00:00:00Z",
     tool: "describe_changes",
     change_type: "updated",
     summary:
-      "The invalid-'since' error message, which echoes the caller's input, is now control-stripped (#67). "
+      "The invalid-'since' error message no longer echoes the caller's input (#67). "
       + "Corrected the 2026-09-25 submit_feedback entry, which misstated the input limits.",
   },
   {

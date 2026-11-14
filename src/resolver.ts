@@ -481,10 +481,12 @@ function describeSource(
   parsed: ParsedSecID,
   node: MatchNode
 ): ResolveResponse {
-  // Pass through all non-null data fields from the match node
+  // Pass through all non-null data fields from the match node, except
+  // `patterns`: in a response that key holds only the child regexes the
+  // resolver executes (set below), so MCP output can trust it (#67).
   const data: Record<string, unknown> = {};
   for (const [key, val] of Object.entries(node.data)) {
-    if (val != null) data[key] = val;
+    if (val != null && key !== "patterns") data[key] = val;
   }
   // Ensure core fields have defaults
   if (!data.official_name) data.official_name = node.description;

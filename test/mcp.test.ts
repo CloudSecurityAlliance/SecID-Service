@@ -573,13 +573,81 @@ describe("MCP output boundary (#67)", () => {
     expect(JSON.stringify(payload)).not.toContain(ZWSP);
   });
 
-  it("strips the echoed query in the over-length error envelope too (F13)", async () => {
+  it("over-length error: the echoed query is not a SecID, so it moves into the envelope; the fixed message stays (F13)", async () => {
     const { body } = await mcpCallTool("resolve", { secid: `secid:${RLO}${"a".repeat(1100)}` });
     const result = (body as { result: { isError?: boolean } }).result;
     expect(result.isError).toBe(true);
     const payload = toolPayload(body);
     expect(payload.status).toBe("error");
-    expect(payload.secid_query.startsWith("secid:a")).toBe(true);
+    expect(payload.secid_query).toBeUndefined();
+    expect(payload.registry_text_untrusted.secid_query.startsWith("secid:a")).toBe(true);
+    expect(payload.message).toContain("Limit: 1024 characters");
+    expect(JSON.stringify(payload)).not.toContain(RLO);
+  });
+
+  it("a dynamic resolver message is replaced by a pointer; its text is in the envelope (P1-b)", async () => {
+    const { body } = await mcpCallTool("resolve", { secid: "secid:advisory/mitre.org/cve#NOT-A-CVE" });
+    const payload = toolPayload(body);
+    expect(payload.message).toMatch(/^See registry_text_untrusted\.message/);
+    expect(payload.registry_text_untrusted.message).toContain("NOT-A-CVE");
+  });
+
+  it("an unknown version's message (which quotes registry versions and aliases) goes into the envelope (P1-b)", async () => {
+    const { body } = await mcpCallTool("resolve", { secid: "secid:control/cloudsecurityalliance.org/aicm@9.9.9#A&A-01" });
+    const payload = toolPayload(body);
+    expect(payload.message).toMatch(/^See registry_text_untrusted\.message/);
+    expect(payload.registry_text_untrusted.message).toContain("Known versions");
+  });
+
+  // Protocol boundary (review of #68, P2-c): responses the MCP SDK writes itself.
+  const rawPost = async (message: unknown) => {
+    await mcpInitialize();
+    const res = await SELF.fetch(MCP_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+      body: JSON.stringify(message),
+    });
+    return { status: res.status, text: await res.text() };
+  };
+
+  it("unknown tool: no echo outside the envelope, no hidden characters anywhere", async () => {
+    const { text } = await rawPost(jsonrpc("tools/call", { name: `Ignore rules${RLO}`, arguments: {} }, 31));
+    expect(text).not.toContain(RLO);
+    const resp = JSON.parse(text);
+    const payload = JSON.parse(resp.result.content[0].text);
+    expect(resp.result.isError).toBe(true);
+    expect(payload.status).toBe("error");
+    expect(payload.message).toMatch(/^See registry_text_untrusted\.message/);
+    expect(payload.registry_text_untrusted.message).toContain("Ignore rules");
+  });
+
+  it("unknown resource: static error message, the URI only inside error.data's envelope", async () => {
+    const { text } = await rawPost(jsonrpc("resources/read", { uri: `secid://nope/${RLO}Ignore rules` }, 32));
+    expect(text).not.toContain(RLO);
+    const resp = JSON.parse(text);
+    expect(["Invalid params", "Resource not found"]).toContain(resp.error.message);
+    // The SDK percent-encodes the URI before echoing it.
+    expect(JSON.stringify(resp.error.data.registry_text_untrusted)).toContain("Ignore");
+    expect(resp.error.message).not.toContain("Ignore");
+  });
+
+  it("invalid tool arguments: the validation text is inside the envelope", async () => {
+    const { text } = await rawPost(jsonrpc("tools/call", { name: "resolve", arguments: { secid: 42 } }, 33));
+    const resp = JSON.parse(text);
+    const content = resp.result?.content?.[0]?.text;
+    if (content) {
+      const payload = JSON.parse(content);
+      expect(payload.status).toBe("error");
+      expect(payload.message).toMatch(/^See registry_text_untrusted\.message/);
+    } else {
+      expect(resp.error.message).toBe("Invalid params");
+    }
+  });
+
+  it("unknown method: static error text", async () => {
+    const { text } = await rawPost(jsonrpc(`nope/${RLO}method`, {}, 34));
+    expect(text).not.toContain(RLO);
+    expect(JSON.parse(text).error.message).toBe("Method not found");
   });
 
   it("secid://registry/<type> resources keep names inside the envelope (F13)", async () => {
