@@ -258,6 +258,12 @@ function resolveWithName(
     if (versionOutcome) return versionOutcome;
   }
 
+  // Explicit releases use their own item tree even when a source also has
+  // unversioned/live item children (e.g. CWE). Never fall back to live URLs.
+  if (parsed.version && versionChildren(matchedNode).length > 0) {
+    return resolveVersioned(query, parsed, matchedNode);
+  }
+
   // No subpath → return source-level detail (Level 3)
   if (!parsed.subpath) {
     return describeSource(query, parsed, matchedNode);
@@ -268,6 +274,21 @@ function resolveWithName(
 }
 
 // ── Version Checking ──
+
+/** Optional version branches are explicitly typed and have an item tree.
+ * A leaf whose ID happens to be a version (e.g. schema #8.0) stays an item.
+ * Required-version sources retain their existing all-children layout.
+ */
+function versionChildren(node: MatchNode): MatchNode[] {
+  return (node.children ?? []).filter((child) =>
+    node.data.version_required || (child.data.type === "version" && Array.isArray(child.children))
+  );
+}
+
+function itemChildren(node: MatchNode): MatchNode[] {
+  const versions = new Set(versionChildren(node));
+  return (node.children ?? []).filter((child) => !versions.has(child));
+}
 
 interface VersionAliasMatch {
   canonical: string;
@@ -292,8 +313,8 @@ function matchVersionAlias(node: MatchNode, version: string): VersionAliasMatch 
       return { canonical: entry.version, onMatch: alias.on_match === "redirect" ? "redirect" : "resolve" };
     }
   }
-  if (node.data.version_required && node.children?.length) {
-    const child = node.children.find((c) => matchesAnyPattern(c.patterns, version));
+  if (versionChildren(node).length) {
+    const child = versionChildren(node).find((c) => matchesAnyPattern(c.patterns, version));
     const canonical = child ? patternLiteral(child.patterns[0] ?? "") : null;
     if (canonical && canonical !== version) return { canonical, onMatch: "resolve" };
   }
@@ -411,9 +432,9 @@ function resolveVersionMismatch(
   const version = parsed.version!;
   const listed = (node.data.versions_available ?? []).map((v) => v.version);
 
-  if (node.data.version_required) {
-    if (!node.children?.length) return null; // nothing to check against
-    const known = node.children.some((c) => matchesAnyPattern(c.patterns, version));
+  if (node.data.version_required || versionChildren(node).length > 0) {
+    if (!versionChildren(node).length) return null; // nothing to check against
+    const known = versionChildren(node).some((c) => matchesAnyPattern(c.patterns, version));
     if (known) return null;
     return parsed.subpath ? versionNotFound(query, parsed, node) : versionRequiredMiss(query, parsed, node);
   }
@@ -465,7 +486,7 @@ function versionRequiredMiss(
       secid: `secid:${parsed.type}/${parsed.namespace}/${nameSlug}`,
       data: {
         official_name: node.data.official_name ?? node.description,
-        version_required: true,
+        version_required: node.data.version_required ?? false,
         versions_available: node.data.versions_available ?? [],
         version_disambiguation: node.data.version_disambiguation ?? null,
       },
@@ -527,7 +548,7 @@ function resolveSubpath(
   }
 
   const results = matchChildrenAndResolve(
-    node.children,
+    itemChildren(node),
     parsed.subpath!,
     parsed,
     node
@@ -591,7 +612,7 @@ function resolveVersioned(
     return describeSource(query, parsed, node);
   }
 
-  const versionChild = node.children.find((child) =>
+  const versionChild = versionChildren(node).find((child) =>
     matchesAnyPattern(child.patterns, parsed.version!)
   );
 
@@ -975,7 +996,7 @@ function namespaceScopedSearch(
   for (const node of ns.match_nodes) {
     if (!node.children) continue;
 
-    for (const child of node.children) {
+    for (const child of itemChildren(node)) {
       if (!nodeMatches(child, identifier, true)) continue;
 
       if (parsed.qualifiers?.lang && child.data.lang) {
@@ -1086,7 +1107,7 @@ function typeScopedSearch(
       // Child-level pattern match — user typed an item identifier
       // (e.g., "CVE-2021-44228" matches a child of the cve source).
       if (!node.children) continue;
-      for (const child of node.children) {
+      for (const child of itemChildren(node)) {
         if (!nodeMatches(child, identifier, false)) continue;
 
         if (parsed.qualifiers?.lang && child.data.lang) {

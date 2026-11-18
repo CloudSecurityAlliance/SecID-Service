@@ -585,3 +585,30 @@ closed grammars, and the tool descriptions tell clients that every field is stil
   The four budget gaps need oversized adversarial content in the registry itself, which arrives
   only through reviewed, CI-gated PRs. The float difference happens with ordinary values (`1.0`)
   and only affects byte parity, not safety.
+
+
+## ADR-021: Optional version trees retain live identifier lookup
+
+**Date:** 2026-11-18
+**Status:** Accepted for implementation; independent review required before merge
+**Decision method:** AI decision (Codex), with fresh-context Claude review before merge.
+**Issue:** [#75](https://github.com/CloudSecurityAlliance/SecID-Service/issues/75).
+
+Recognize a direct child with `data.type: "version"` and a `children` array as
+an optional release branch when the source does not require versions. Explicit
+`@version` queries resolve only within that branch, including version descriptions.
+Unversioned scoped, namespace and type searches use direct item children only.
+Required-version sources retain their existing layout. A version-shaped leaf
+(e.g. schema `#8.0`) remains an item; matching a version string alone is insufficient.
+
+This lets CWE keep bare identifier lookup while versioned results link to exact
+archives. An audit of the registry found no existing optional-version source with
+nested release children, so the new layout deploys after this code. Missing
+release trees and missing items never substitute live results. Python receives
+the same traversal change. Synthetic tests let both resolver PRs pass before the
+registry is published; generated registry examples then verify the actual train.
+
+**Rejected alternatives:** requiring versions for CWE would break common lookup;
+mapping historical requests to today's API would falsely claim a snapshot;
+inferencing version branches solely from numeric patterns confuses ordinary IDs.
+No new schema fields or changes to authorization, sanitization or CI gates.
