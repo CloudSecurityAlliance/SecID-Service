@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { parseSecID } from "../src/parser";
 import { resolve } from "../src/resolver";
 import { resolveQuery } from "../src/kv-resolve";
-import type { Registry, RegistryNamespace, ResolveResponse } from "../src/types";
+import type { MatchNode, Registry, RegistryNamespace, ResolveResponse } from "../src/types";
 
 // Independent of the live registry: Service must deploy before the CWE data.
 const ns: RegistryNamespace = {
@@ -38,6 +38,14 @@ const urls = (r: ResolveResponse) => r.results.flatMap((x) => "url" in x ? [x.ur
 const scoped = "secid:weakness/test.example/cwe";
 
 describe("optional release branches", () => {
+  it("tolerates unmatched children without metadata, as allowed by the JSON schema", () => {
+    const copy = structuredClone(registry);
+    copy.weakness[ns.namespace].match_nodes[0].children!.unshift({
+      patterns: ["^unrelated$"], description: "No metadata", weight: 100,
+    } as MatchNode);
+    const q = `${scoped}#CWE-79`;
+    expect(urls(resolve(parseSecID(q, copy), copy))).toEqual(["https://test.example/live/CWE-79"]);
+  });
   it("preserves live scoped and cross-source item lookup", () => {
     for (const q of [`${scoped}#cwe-79`, "secid:weakness/CWE-79", "secid:weakness/test.example/CWE-79"]) {
       expect(urls(local(q))).toEqual(["https://test.example/live/CWE-79"]);

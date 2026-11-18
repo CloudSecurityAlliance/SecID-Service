@@ -281,7 +281,7 @@ function resolveWithName(
  */
 function versionChildren(node: MatchNode): MatchNode[] {
   return (node.children ?? []).filter((child) =>
-    node.data.version_required || (child.data.type === "version" && Array.isArray(child.children))
+    node.data.version_required || (child.data?.type === "version" && Array.isArray(child.children))
   );
 }
 
