@@ -30,7 +30,7 @@ import { fileURLToPath } from "url";
 import { homedir } from "os";
 import { execFileSync } from "child_process";
 import { namespaceAliases } from "../src/identity";
-import { extractNameSlug, isOpenPattern } from "../src/resolver";
+import { extractNameSlug, isOpenPattern, isVersionBranch } from "../src/resolver";
 import type { GlobalChildIndexEntry } from "../src/types";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -252,6 +252,7 @@ function buildEntries(): BulkEntry[] {
         const nameSlug = extractNameSlug(node);
         if (!node.children) continue;
         for (const child of node.children) {
+          if (!node.data?.version_required && isVersionBranch(child)) continue;
           childIndex.push({
             namespace: ns,
             name_slug: nameSlug,
@@ -310,6 +311,7 @@ function buildEntries(): BulkEntry[] {
         });
         if (!node.children) continue;
         for (const child of node.children) {
+          if (!node.data?.version_required && isVersionBranch(child)) continue;
           globalChildIndex.push({
             type,
             namespace: ns,

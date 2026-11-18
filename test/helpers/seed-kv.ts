@@ -8,7 +8,7 @@
 import { REGISTRY } from "../../src/registry";
 import type { ChildIndexEntry, GlobalChildIndexEntry, NameIndexEntry, TypeIndex } from "../../src/types";
 import { namespaceAliases } from "../../src/identity";
-import { extractNameSlug, isOpenPattern } from "../../src/resolver";
+import { extractNameSlug, isOpenPattern, isVersionBranch } from "../../src/resolver";
 import { TYPE_SHORT_DESCRIPTIONS } from "../../src/type-registry";
 
 interface MatchNodeLike {
@@ -55,6 +55,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
       for (const node of nsData.match_nodes ?? []) {
         const nameSlug = extractNameSlug(node);
         for (const child of node.children ?? []) {
+          if (!node.data?.version_required && isVersionBranch(child)) continue;
           childIndex.push({
             namespace: ns,
             name_slug: nameSlug,
@@ -82,6 +83,7 @@ export async function seedRegistryKV(kv: KVNamespace): Promise<void> {
           has_url: !!(node.data?.url),
         });
         for (const child of node.children ?? []) {
+          if (!node.data?.version_required && isVersionBranch(child)) continue;
           globalChildIndex.push({
             type,
             namespace: ns,

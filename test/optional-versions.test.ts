@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseSecID } from "../src/parser";
-import { resolve } from "../src/resolver";
+import { resolve, isVersionBranch } from "../src/resolver";
 import { resolveQuery } from "../src/kv-resolve";
 import type { MatchNode, Registry, RegistryNamespace, ResolveResponse } from "../src/types";
 
@@ -52,12 +52,19 @@ describe("optional release branches", () => {
     }
   });
   it("finds bare lowercase IDs through the KV global index", async () => {
-    const index = ns.match_nodes[0].children!.map((c) => ({ type: "weakness", namespace: ns.namespace,
+    const index = ns.match_nodes[0].children!.filter((c) => !isVersionBranch(c)).map((c) => ({ type: "weakness", namespace: ns.namespace,
       name_slug: "cwe", patterns: c.patterns, description: c.description, weight: c.weight, level: "child" }));
     const store: Record<string, unknown> = { "secid:*": { child_index: index },
-      "secid:weakness/test.example": ns };
+      "secid:weakness/test.example": ns,
+      "secid:weakness": { type: "weakness", description: "Test", namespace_count: 1,
+        namespaces: [{ namespace: ns.namespace, official_name: "Test", common_name: null, source_count: 1 }], child_index: index },
+    };
     const kv = { get: async (k: string) => store[k] ?? null } as unknown as KVNamespace;
-    expect(urls(await resolveQuery(kv, "cwe-79"))).toEqual(["https://test.example/live/CWE-79"]);
+    for (const q of ["CWE-79", "cwe-79"]) {
+      expect(urls(await resolveQuery(kv, q))).toEqual(["https://test.example/live/CWE-79"]);
+    }
+    expect(urls(await resolveQuery(kv, `${scoped}@4.19#cwe-79`))).toEqual(["https://test.example/4.19.zip"]);
+    expect(urls(await resolveQuery(kv, `${scoped}@4.19#CWE-1448`))).toEqual([]);
   });
   it("honors explicit versions and aliases, including source descriptions", () => {
     for (const v of ["5.0", "4.19", "old"]) {
@@ -76,6 +83,28 @@ describe("optional release branches", () => {
       expect(r.status).not.toBe("found");
       expect(urls(r)).toEqual([]);
     }
+  });
+  it("keeps full required-version source descriptions and resolves their items", () => {
+    const copy = structuredClone(registry);
+    const source = copy.weakness[ns.namespace].match_nodes[0];
+    source.data.version_required = true;
+    source.data.version_disambiguation = "Choose an edition";
+    source.children = source.children!.filter(isVersionBranch);
+    const query = `${scoped}@4.19`;
+    const r = resolve(parseSecID(query, copy), copy);
+    expect("data" in r.results[0] && r.results[0].data).toMatchObject({
+      version_required: true, version_disambiguation: "Choose an edition",
+      versions_available: source.data.versions_available,
+    });
+    const item = `${query}#CWE-79`;
+    expect(urls(resolve(parseSecID(item, copy), copy))).toEqual(["https://test.example/4.19.zip"]);
+  });
+  it("lists only live item patterns for optional sources", () => {
+    const r = local(scoped);
+    expect("data" in r.results[0] && r.results[0].data.patterns).toEqual([
+      { pattern: "(?i)^CWE-(?:79|1448)$", description: "Live" },
+      { pattern: "^8\\.0$", description: "Schema" },
+    ]);
   });
   it("does not confuse release branches with unversioned items", () => {
     expect(urls(local(`${scoped}#5.0`))).toEqual([]);

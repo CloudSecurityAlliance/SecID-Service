@@ -596,7 +596,9 @@ closed grammars, and the tool descriptions tell clients that every field is stil
 
 Recognize a direct child with `data.type: "version"` and a `children` array as
 an optional release branch when the source does not require versions. Explicit
-`@version` queries resolve only within that branch, including version descriptions.
+`@version` queries on optional-version sources resolve only within that branch,
+including version descriptions. Existing required-version source descriptions
+retain their full source metadata; their item queries still select a release.
 Unversioned scoped, namespace and type searches use direct item children only.
 Required-version sources retain their existing layout. A version-shaped leaf
 (e.g. schema `#8.0`) remains an item; matching a version string alone is insufficient.
@@ -612,3 +614,11 @@ registry is published; generated registry examples then verify the actual train.
 mapping historical requests to today's API would falsely claim a snapshot;
 inferencing version branches solely from numeric patterns confuses ordinary IDs.
 No new schema fields or changes to authorization, sanitization or CI gates.
+
+
+**Review amendment (2026-11-18):** preserve required-version source descriptions
+(S1), extend the MCP sanitizer query walk to optional release trees (S2), and
+exclude optional release branches from production/test item indexes (S3). Optional
+source descriptions list live item patterns and keep releases in versions_available.
+KV regressions cover bare casing and explicit release lookup; website verification
+follows the registry deploy. The sanitizer's existing string cap is unchanged.

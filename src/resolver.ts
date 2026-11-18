@@ -174,7 +174,7 @@ function listSources(
         official_name: node.data.official_name ?? node.description,
         common_name: node.data.common_name ?? null,
         description: node.data.description ?? node.description,
-        child_count: node.children?.length ?? 0,
+        child_count: describedChildren(node).length,
         subtypes: [...subtypes].sort(),
         ...(Array.isArray(country) && country.length ? { country } : {}),
       },
@@ -260,7 +260,7 @@ function resolveWithName(
 
   // Explicit releases use their own item tree even when a source also has
   // unversioned/live item children (e.g. CWE). Never fall back to live URLs.
-  if (parsed.version && versionChildren(matchedNode).length > 0) {
+  if (parsed.version && !matchedNode.data.version_required && versionChildren(matchedNode).length > 0) {
     return resolveVersioned(query, parsed, matchedNode);
   }
 
@@ -279,10 +279,20 @@ function resolveWithName(
  * A leaf whose ID happens to be a version (e.g. schema #8.0) stays an item.
  * Required-version sources retain their existing all-children layout.
  */
+export function isVersionBranch(node: { data?: { type?: unknown }; children?: unknown }): boolean {
+  return node.data?.type === "version" && Array.isArray(node.children);
+}
+
 function versionChildren(node: MatchNode): MatchNode[] {
   return (node.children ?? []).filter((child) =>
-    node.data.version_required || (child.data?.type === "version" && Array.isArray(child.children))
+    node.data.version_required || isVersionBranch(child)
   );
+}
+
+// Required-version sources still describe their version children as before.
+// Optional sources describe live items; versions_available carries their releases.
+function describedChildren(node: MatchNode): MatchNode[] {
+  return node.data.version_required ? (node.children ?? []) : itemChildren(node);
 }
 
 function itemChildren(node: MatchNode): MatchNode[] {
@@ -515,7 +525,7 @@ function describeSource(
   if (!data.urls) data.urls = [];
 
   if (node.children && node.children.length > 0) {
-    data.patterns = node.children.map((c) => ({
+    data.patterns = describedChildren(node).map((c) => ({
       pattern: c.patterns[0],
       description: c.description,
     }));
@@ -1098,7 +1108,7 @@ function typeScopedSearch(
               weight: node.weight ?? 100,
               official_name: ns.official_name,
               common_name: ns.common_name,
-              child_count: node.children?.length ?? 0,
+              child_count: describedChildren(node).length,
             },
           } as RegistryResult);
         }

@@ -16,7 +16,7 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { SELF, env } from "cloudflare:test";
 import { seedRegistryKV } from "./helpers/seed-kv";
 import { parseSecID } from "../src/parser";
-import { resolve, extractNameSlug, patternLiteral } from "../src/resolver";
+import { resolve, extractNameSlug, patternLiteral, isVersionBranch } from "../src/resolver";
 import { resolveQuery } from "../src/kv-resolve";
 import { REGISTRY } from "../src/registry";
 import { sanitizeListingForMcp, sanitizeRecordForMcp, sanitizeResponseForMcp } from "../src/sanitize";
@@ -213,7 +213,7 @@ function registryQueries(): string[] {
         const base = `secid:${type}/${ns}/${patternLiteral(node.patterns[0] ?? "") ?? extractNameSlug(node)}`;
         queries.push(base, `${base}#__no_such_item__`, `${base}@9.9.9-unknown`);
         for (const child of node.children ?? []) {
-          if (node.data?.version_required) {
+          if (node.data?.version_required || isVersionBranch(child)) {
             const v = patternLiteral(child.patterns[0] ?? "");
             if (!v) continue;
             queries.push(`${base}@${v}`);
